@@ -1,0 +1,1008 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="FL Team 유행어 생존 예측 프로젝트" />
+    <title>유행어 생존 예측</title>
+    <style>
+      html, body, #root { margin: 0; width: 100%; min-width: 320px; min-height: 100vh; }
+      * { box-sizing: border-box; }
+      body { overflow-x: hidden; }
+      noscript { display: block; padding: 24px; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    </style>
+    <script type="importmap">
+      {
+        "imports": {
+          "react": "https://esm.sh/react@18.2.0",
+          "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+          "recharts": "https://esm.sh/recharts@2.12.7?external=react"
+        }
+      }
+    </script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  </head>
+  <body>
+    <noscript>이 페이지를 보려면 JavaScript를 켜야 합니다.</noscript>
+    <div id="root"></div>
+    <script type="text/babel" data-type="module" data-presets="react">
+import React, { useState, useEffect, useMemo } from "react";
+import { createRoot } from "react-dom/client";
+import {
+  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
+  LineChart, Line, CartesianGrid, PieChart, Pie, Cell, Legend,
+  AreaChart, Area, ComposedChart, RadarChart, Radar, PolarGrid,
+  PolarAngleAxis, PolarRadiusAxis
+} from "recharts";
+
+const C={
+  bg:"#f7f5f0",bgAlt:"#efece5",card:"#ffffff",cardHov:"#fdfcfa",
+  surface:"#f0ede6",surfaceLight:"#e8e4dc",
+  border:"#e0dbd2",borderDark:"#ccc6ba",
+  text:"#1a1612",textMid:"#4a4540",textDim:"#7a746a",textMuted:"#a9a29a",
+  amber:"#d4890a",amberLight:"#f5a623",amberBg:"rgba(212,137,10,0.07)",
+  coral:"#d94f30",coralBg:"rgba(217,79,48,0.06)",
+  purple:"#7c5cbf",purpleBg:"rgba(124,92,191,0.06)",
+  green:"#2d9a5a",greenBg:"rgba(45,154,90,0.06)",
+  red:"#c93c3c",redBg:"rgba(201,60,60,0.06)",
+  yellow:"#b8860b",blue:"#3572b0",orange:"#c66a1e",
+};
+const font=`'Pretendard Variable','Noto Sans KR',-apple-system,sans-serif`;
+const mono=`'JetBrains Mono','Fira Code',monospace`;
+const shadow="0 1px 3px rgba(0,0,0,0.04),0 4px 12px rgba(0,0,0,0.03)";
+const tt={background:"#fff",border:`1px solid ${C.border}`,borderRadius:8,color:C.text,fontSize:12,boxShadow:shadow};
+
+/* ═══ 용어 사전 (일반 사용자용 쉬운 설명) ═══ */
+const GLOSSARY={
+  "E":["의미 벡터","유행어의 '뜻'을 컴퓨터가 이해하도록 숫자로 바꾼 값"],
+  "L":["언어 특징","글자 수·한글 비율·발음 리듬 등 단어의 겉모습 특징"],
+  "F":["사용 빈도","트위터에서 그 유행어가 실제로 얼마나 자주 쓰였는지"],
+  "SN":["의미 이웃","이미 오래 살아남은 유행어들과 의미적으로 얼마나 가까운지"],
+  "AUROC":["예측 정확도","0.5는 찍기 수준, 1.0은 완벽. 높을수록 잘 맞힘"],
+  "F1":["균형 점수","맞힌 비율과 놓치지 않은 비율을 함께 본 점수"],
+  "Balanced Accuracy":["균형 정확도","생존·미생존 양쪽을 공평하게 본 정확도"],
+  "SHAP":["예측 근거","어떤 특징이 결과를 어느 방향으로 밀었는지 보여주는 값"],
+  "Horizon":["관찰 기간","유행어 등장 후 며칠/몇 달치 사용 데이터를 봤는지"],
+  "Ablation":["부품 빼보기","피처를 하나씩 빼며 무엇이 중요한지 확인하는 실험"],
+  "KNN":["주변 이웃","의미적으로 가장 가까운 단어 몇 개를 찾아보는 방법"],
+  "Margin":["생존 거리 점수","생존 유행어 쪽에 가까우면 +, 미생존 쪽이면 작아짐"],
+  "UMAP":["의미 지도화","수백 차원의 의미를 사람이 볼 수 있게 2차원 평면에 펼친 것"],
+};
+/* 밑줄 점선 + 마우스오버 설명. children 없으면 "코드(한글)" 형태로 표시 */
+function Term({k,children}){
+  const g=GLOSSARY[k];
+  const [hv,setHv]=useState(false);
+  const label=children!==undefined?children:(g?`${k} (${g[0]})`:k);
+  return<span style={{position:"relative",borderBottom:`1px dotted ${C.textMuted}`,cursor:"help",whiteSpace:"nowrap"}}
+    onMouseEnter={()=>setHv(true)} onMouseLeave={()=>setHv(false)}>
+    {label}
+    {hv&&g&&<span style={{position:"absolute",bottom:"130%",left:"50%",transform:"translateX(-50%)",zIndex:200,width:220,padding:"8px 11px",borderRadius:8,background:C.text,color:"#fff",fontSize:11,fontWeight:400,lineHeight:1.6,boxShadow:shadow,whiteSpace:"normal",textAlign:"left"}}>
+      <b>{k} = {g[0]}</b><br/>{g[1]}
+    </span>}
+  </span>;
+}
+
+/* ═══ REAL DATA ═══ */
+const modelComp=[
+  {name:"XGBoost",auroc:1.000,bal:1.000},{name:"CatBoost",auroc:1.000,bal:0.984},
+  {name:"Random Forest",auroc:1.000,bal:0.935},{name:"LightGBM",auroc:1.000,bal:0.919},
+  {name:"Logistic Reg.",auroc:0.943,bal:0.872},{name:"MLP",auroc:0.914,bal:0.820},
+];
+const ablationData=[
+  {name:"E+L+SN+F",feat:"의미+언어+의미이웃+빈도",samples:788,count:492,auroc:0.962},
+  {name:"E+L+F",feat:"의미+언어+빈도",samples:788,count:449,auroc:0.953},
+  {name:"L+SN+F",feat:"언어+의미이웃+빈도",samples:788,count:117,auroc:0.936},
+  {name:"L+SN",feat:"언어+의미이웃",samples:819,count:79,auroc:0.767},
+  {name:"E+L",feat:"의미+언어",samples:819,count:449,auroc:0.725},
+  {name:"E+L+SN",feat:"의미+언어+의미이웃",samples:819,count:492,auroc:0.706},
+  {name:"E",feat:"의미만",samples:819,count:384,auroc:0.711},
+  {name:"L",feat:"언어특징만",samples:819,count:65,auroc:0.706},
+];
+const horizonData=[
+  {name:"글자만",desc:"빈도 없이",samples:819,auroc:0.725,f1:0.544,bal:0.657},
+  {name:"+1개월",desc:"등장 후 1개월",samples:819,auroc:0.871,f1:0.673,bal:0.785},
+  {name:"+3개월",desc:"등장 후 3개월",samples:788,auroc:0.953,f1:0.787,bal:0.878},
+  {name:"+6개월",desc:"등장 후 6개월",samples:767,auroc:0.998,f1:0.971,bal:0.988},
+  {name:"+12개월",desc:"등장 후 12개월",samples:730,auroc:1.000,f1:0.912,bal:0.919},
+];
+const shapData=[
+  {name:"h12_freq_last",val:507,group:"F"},{name:"h12_freq_late_mean",val:293,group:"F"},
+  {name:"h12_freq_sum",val:217,group:"F"},{name:"emb_367",val:177,group:"E"},
+  {name:"h12_freq_min",val:161,group:"F"},{name:"emb_129",val:158,group:"E"},
+  {name:"emb_175",val:102,group:"E"},{name:"sn_novelty_score_3",val:102,group:"SN"},
+  {name:"emb_145",val:79,group:"E"},{name:"emb_262",val:79,group:"E"},
+];
+const kdData=[
+  {name:"선생 모델",desc:"글자+빈도 모두 사용",auroc:1.000,bal:0.919},
+  {name:"학생 기준",desc:"글자만 사용 (전달 전)",auroc:0.684,bal:0.645},
+  {name:"전달 0.1",desc:"선생 모방 약하게",auroc:0.680,bal:0.626},
+  {name:"전달 0.3",desc:"선생 모방 보통",auroc:0.688,bal:0.661},
+  {name:"전달 0.5",desc:"선생 모방 중간",auroc:0.670,bal:0.629},
+  {name:"전달 0.7",desc:"선생 모방 강하게",auroc:0.684,bal:0.626},
+  {name:"전달 1.0",desc:"선생 모방 최대",auroc:0.691,bal:0.613},
+];
+const groupImp=[{name:"의미 (E)",val:300,color:C.purple},{name:"언어 특징 (L)",val:40,color:C.amber},{name:"의미 이웃 (SN)",val:22,color:C.blue},{name:"사용 빈도 (F)",val:287,color:C.coral}];
+const YC={2018:4,2019:3,2020:107,2021:116,2022:104,2023:147,2024:190,2025:97,2026:51};
+
+/* ═══ 특징 조합 실험 데이터 ═══ */
+const snTextOnlyData = [{"name":"E+L","feature_set":"E_L","features":449,"E":384,"L":65,"SN":0,"F":0,"auroc":0.72533,"auprc":0.465591,"f1":0.543689,"bal":0.657448,"precision":0.424242,"recall":0.756757},{"name":"E+L+SN","feature_set":"E_L_SN","features":492,"E":384,"L":65,"SN":43,"F":0,"auroc":0.705845,"auprc":0.462168,"f1":0.55102,"bal":0.66719,"precision":0.442623,"recall":0.72973},{"name":"L(no length)+SN","feature_set":"L_no_length_SN","features":79,"E":0,"L":36,"SN":43,"F":0,"auroc":0.767285,"auprc":0.494893,"f1":0.62,"bal":0.732872,"precision":0.492063,"recall":0.837838}];
+const snHorizonData = [{"name":"+1개월","horizon":1,"samples":819,"E_L_auroc":0.72533,"E_L_auprc":0.465591,"E_L_f1":0.543689,"E_L_bal":0.657448,"E_L_precision":0.424242,"E_L_recall":0.756757,"E_L_F_auroc":0.870522,"E_L_F_auprc":0.740581,"E_L_F_f1":0.673267,"E_L_F_bal":0.785041,"E_L_F_precision":0.53125,"E_L_F_recall":0.918919,"E_L_SN_F_auroc":0.872407,"E_L_SN_F_auprc":0.747789,"E_L_SN_F_f1":0.673469,"E_L_SN_F_bal":0.783155,"E_L_SN_F_precision":0.540984,"E_L_SN_F_recall":0.891892,"L_no_length_SN_F_auroc":0.863294,"L_no_length_SN_F_auprc":0.729212,"L_no_length_SN_F_f1":0.653465,"L_no_length_SN_F_bal":0.765713,"L_no_length_SN_F_precision":0.515625,"L_no_length_SN_F_recall":0.891892},{"name":"+3개월","horizon":3,"samples":788,"E_L_auroc":0.69411,"E_L_auprc":0.477737,"E_L_f1":0.444444,"E_L_bal":0.616131,"E_L_precision":0.518519,"E_L_recall":0.388889,"E_L_F_auroc":0.952811,"E_L_F_auprc":0.887733,"E_L_F_f1":0.786517,"E_L_F_bal":0.877677,"E_L_F_precision":0.660377,"E_L_F_recall":0.972222,"E_L_SN_F_auroc":0.962182,"E_L_SN_F_auprc":0.916253,"E_L_SN_F_f1":0.786517,"E_L_SN_F_bal":0.877677,"E_L_SN_F_precision":0.660377,"E_L_SN_F_recall":0.972222,"L_no_length_SN_F_auroc":0.935743,"L_no_length_SN_F_auprc":0.809263,"L_no_length_SN_F_f1":0.790123,"L_no_length_SN_F_bal":0.866131,"L_no_length_SN_F_precision":0.711111,"L_no_length_SN_F_recall":0.888889},{"name":"+6개월","horizon":6,"samples":767,"E_L_auroc":0.691128,"E_L_auprc":0.459603,"E_L_f1":0.530612,"E_L_bal":0.659,"E_L_precision":0.4,"E_L_recall":0.787879,"E_L_F_auroc":0.997809,"E_L_F_auprc":0.994416,"E_L_F_f1":0.970588,"E_L_F_bal":0.987952,"E_L_F_precision":0.942857,"E_L_F_recall":1.0,"E_L_SN_F_auroc":0.99854,"E_L_SN_F_auprc":0.996403,"E_L_SN_F_f1":0.970588,"E_L_SN_F_bal":0.987952,"E_L_SN_F_precision":0.942857,"E_L_SN_F_recall":1.0,"L_no_length_SN_F_auroc":0.997809,"L_no_length_SN_F_auprc":0.994416,"L_no_length_SN_F_f1":0.970588,"L_no_length_SN_F_bal":0.987952,"L_no_length_SN_F_precision":0.942857,"L_no_length_SN_F_recall":1.0},{"name":"+12개월","horizon":12,"samples":730,"E_L_auroc":0.56227,"E_L_auprc":0.352375,"E_L_f1":0.217391,"E_L_bal":0.517354,"E_L_precision":0.333333,"E_L_recall":0.16129,"E_L_F_auroc":1.0,"E_L_F_auprc":1.0,"E_L_F_f1":0.912281,"E_L_F_bal":0.919355,"E_L_F_precision":1.0,"E_L_F_recall":0.83871,"E_L_SN_F_auroc":1.0,"E_L_SN_F_auprc":1.0,"E_L_SN_F_f1":0.912281,"E_L_SN_F_bal":0.919355,"E_L_SN_F_precision":1.0,"E_L_SN_F_recall":0.83871,"L_no_length_SN_F_auroc":1.0,"L_no_length_SN_F_auprc":1.0,"L_no_length_SN_F_f1":0.912281,"L_no_length_SN_F_bal":0.919355,"L_no_length_SN_F_precision":1.0,"L_no_length_SN_F_recall":0.83871}];
+const snDeltaData = [{"name":"+1개월","horizon":1,"delta_auroc":0.001886,"delta_auprc":0.007208,"delta_f1":0.000202,"delta_bal":-0.001886,"delta_precision":0.009734,"delta_recall":-0.027027,"auroc_baseline":0.870522,"auroc_target":0.872407,"auprc_baseline":0.740581,"auprc_target":0.747789},{"name":"+3개월","horizon":3,"delta_auroc":0.009371,"delta_auprc":0.028521,"delta_f1":0.0,"delta_bal":0.0,"delta_precision":0.0,"delta_recall":0.0,"auroc_baseline":0.952811,"auroc_target":0.962182,"auprc_baseline":0.887733,"auprc_target":0.916253},{"name":"+6개월","horizon":6,"delta_auroc":0.00073,"delta_auprc":0.001988,"delta_f1":0.0,"delta_bal":0.0,"delta_precision":0.0,"delta_recall":0.0,"auroc_baseline":0.997809,"auroc_target":0.99854,"auprc_baseline":0.994416,"auprc_target":0.996403},{"name":"+12개월","horizon":12,"delta_auroc":0.0,"delta_auprc":0.0,"delta_f1":0.0,"delta_bal":0.0,"delta_precision":0.0,"delta_recall":0.0,"auroc_baseline":1.0,"auroc_target":1.0,"auprc_baseline":1.0,"auprc_target":1.0}];
+const snGroupImportance = [{"name":"+1개월","feature_set":"E_L_SN_F","E":207.0,"F":91.0,"L":17.0,"SN":6.0},{"name":"+3개월","feature_set":"E_L_SN_F","E":300.0,"F":287.0,"L":40.0,"SN":22.0},{"name":"+6개월","feature_set":"E_L_SN_F","E":284.0,"F":452.0,"L":26.0,"SN":185.0},{"name":"+12개월","feature_set":"E_L_SN_F","E":1199.0,"F":1203.0,"L":51.0,"SN":258.0},{"name":"+1개월","feature_set":"L_no_length_SN_F","F":184.0,"L":258.0,"SN":566.0,"E":0},{"name":"+3개월","feature_set":"L_no_length_SN_F","F":448.0,"L":145.0,"SN":213.0,"E":0},{"name":"+6개월","feature_set":"L_no_length_SN_F","F":743.0,"L":60.0,"SN":693.0,"E":0},{"name":"+12개월","feature_set":"L_no_length_SN_F","F":2160.0,"L":378.0,"SN":877.0,"E":0}];
+const snTopFeatures = [{"horizon":"all_no_F","feature_set":"L_no_length_SN","rank":1,"feature":"sn_survival_margin","group":"SN","importance":20.0},{"horizon":"all_no_F","feature_set":"L_no_length_SN","rank":2,"feature":"sn_knn_weighted_survival_10","group":"SN","importance":14.0},{"horizon":"all_no_F","feature_set":"L_no_length_SN","rank":3,"feature":"sn_sim_survivor_centroid","group":"SN","importance":12.0},{"horizon":"all_no_F","feature_set":"L_no_length_SN","rank":4,"feature":"hangul_ratio","group":"L","importance":11.0},{"horizon":"all_no_F","feature_set":"L_no_length_SN","rank":5,"feature":"sn_nearest_survivor_sim","group":"SN","importance":10.0},{"horizon":"all_no_F","feature_set":"L_no_length_SN","rank":6,"feature":"sn_knn_weighted_survival_20","group":"SN","importance":10.0},{"horizon":"all_no_F","feature_set":"L_no_length_SN","rank":7,"feature":"rhythm_score","group":"L","importance":7.0},{"horizon":"all_no_F","feature_set":"L_no_length_SN","rank":8,"feature":"noun_ratio","group":"L","importance":5.0},{"horizon":"all_no_F","feature_set":"L_no_length_SN","rank":9,"feature":"final_consonant_ratio","group":"L","importance":5.0},{"horizon":"all_no_F","feature_set":"L_no_length_SN","rank":10,"feature":"pronunciation_simplicity_score","group":"L","importance":5.0},{"horizon":"all_no_F","feature_set":"L_no_length_SN","rank":11,"feature":"sn_nearest_nonsurvivor_sim","group":"SN","importance":5.0},{"horizon":"all_no_F","feature_set":"L_no_length_SN","rank":12,"feature":"sn_knn_weighted_survival_3","group":"SN","importance":5.0},{"horizon":"all_no_F","feature_set":"L_no_length_SN","rank":13,"feature":"eomi_ratio","group":"L","importance":4.0},{"horizon":"all_no_F","feature_set":"L_no_length_SN","rank":14,"feature":"verb_ratio","group":"L","importance":3.0},{"horizon":"all_no_F","feature_set":"L_no_length_SN","rank":15,"feature":"sn_local_sim_std_3","group":"SN","importance":3.0},{"horizon":"h1","feature_set":"L_no_length_SN_F","rank":1,"feature":"h1_freq_sum","group":"F","importance":168.0},{"horizon":"h1","feature_set":"L_no_length_SN_F","rank":2,"feature":"rhythm_score","group":"L","importance":123.0},{"horizon":"h1","feature_set":"L_no_length_SN_F","rank":3,"feature":"sn_survival_margin","group":"SN","importance":70.0},{"horizon":"h1","feature_set":"L_no_length_SN_F","rank":4,"feature":"sn_abs_survival_margin","group":"SN","importance":52.0},{"horizon":"h1","feature_set":"L_no_length_SN_F","rank":5,"feature":"sn_local_sim_std_3","group":"SN","importance":51.0},{"horizon":"h1","feature_set":"L_no_length_SN_F","rank":6,"feature":"sn_knn_weighted_survival_20","group":"SN","importance":50.0},{"horizon":"h1","feature_set":"L_no_length_SN_F","rank":7,"feature":"sn_sim_survivor_centroid","group":"SN","importance":40.0},{"horizon":"h1","feature_set":"L_no_length_SN_F","rank":8,"feature":"sn_neighbor_label_entropy_20","group":"SN","importance":40.0},{"horizon":"h1","feature_set":"L_no_length_SN_F","rank":9,"feature":"sn_knn_weighted_survival_10","group":"SN","importance":32.0},{"horizon":"h1","feature_set":"L_no_length_SN_F","rank":10,"feature":"hangul_ratio","group":"L","importance":31.0},{"horizon":"h1","feature_set":"L_no_length_SN_F","rank":11,"feature":"pronunciation_simplicity_score","group":"L","importance":29.0},{"horizon":"h1","feature_set":"L_no_length_SN_F","rank":12,"feature":"sn_nearest_survivor_sim","group":"SN","importance":26.0},{"horizon":"h1","feature_set":"L_no_length_SN_F","rank":13,"feature":"sn_nearest_margin","group":"SN","importance":26.0},{"horizon":"h1","feature_set":"L_no_length_SN_F","rank":14,"feature":"sn_nearest_nonsurvivor_sim","group":"SN","importance":22.0},{"horizon":"h1","feature_set":"L_no_length_SN_F","rank":15,"feature":"sn_knn_weighted_survival_5","group":"SN","importance":21.0},{"horizon":"h3","feature_set":"E_L_SN_F","rank":1,"feature":"h3_freq_min","group":"F","importance":86.0},{"horizon":"h3","feature_set":"E_L_SN_F","rank":2,"feature":"h3_freq_last","group":"F","importance":75.0},{"horizon":"h3","feature_set":"E_L_SN_F","rank":3,"feature":"emb_040","group":"E","importance":49.0},{"horizon":"h3","feature_set":"E_L_SN_F","rank":4,"feature":"emb_199","group":"E","importance":42.0},{"horizon":"h3","feature_set":"E_L_SN_F","rank":5,"feature":"char_len","group":"L","importance":40.0},{"horizon":"h3","feature_set":"E_L_SN_F","rank":6,"feature":"emb_230","group":"E","importance":36.0},{"horizon":"h3","feature_set":"E_L_SN_F","rank":7,"feature":"emb_158","group":"E","importance":29.0},{"horizon":"h3","feature_set":"E_L_SN_F","rank":8,"feature":"emb_178","group":"E","importance":22.0},{"horizon":"h3","feature_set":"E_L_SN_F","rank":9,"feature":"h3_freq_last_to_max_ratio","group":"F","importance":22.0},{"horizon":"h3","feature_set":"E_L_SN_F","rank":10,"feature":"h3_freq_log_slope","group":"F","importance":20.0},{"horizon":"h3","feature_set":"E_L_SN_F","rank":11,"feature":"h3_freq_entropy","group":"F","importance":20.0},{"horizon":"h3","feature_set":"E_L_SN_F","rank":12,"feature":"emb_030","group":"E","importance":17.0},{"horizon":"h3","feature_set":"E_L_SN_F","rank":13,"feature":"emb_198","group":"E","importance":15.0},{"horizon":"h3","feature_set":"E_L_SN_F","rank":14,"feature":"emb_287","group":"E","importance":14.0},{"horizon":"h3","feature_set":"E_L_SN_F","rank":15,"feature":"h3_freq_median","group":"F","importance":14.0},{"horizon":"h3","feature_set":"E_L_SN_F","rank":16,"feature":"sn_survival_margin","group":"SN","importance":12.0},{"horizon":"h3","feature_set":"E_L_SN_F","rank":17,"feature":"emb_069","group":"E","importance":11.0},{"horizon":"h3","feature_set":"E_L_SN_F","rank":18,"feature":"emb_268","group":"E","importance":11.0},{"horizon":"h3","feature_set":"E_L_SN_F","rank":19,"feature":"h3_freq_slope","group":"F","importance":11.0},{"horizon":"h3","feature_set":"E_L_SN_F","rank":20,"feature":"h3_post_peak_log_slope","group":"F","importance":11.0},{"horizon":"h3","feature_set":"E_L_SN_F","rank":21,"feature":"emb_049","group":"E","importance":10.0},{"horizon":"h3","feature_set":"E_L_SN_F","rank":22,"feature":"emb_173","group":"E","importance":10.0},{"horizon":"h3","feature_set":"E_L_SN_F","rank":23,"feature":"emb_301","group":"E","importance":10.0},{"horizon":"h3","feature_set":"E_L_SN_F","rank":24,"feature":"sn_nearest_margin","group":"SN","importance":10.0},{"horizon":"h3","feature_set":"L_no_length_SN_F","rank":1,"feature":"h3_freq_min","group":"F","importance":94.0},{"horizon":"h3","feature_set":"L_no_length_SN_F","rank":2,"feature":"sn_survival_margin","group":"SN","importance":87.0},{"horizon":"h3","feature_set":"L_no_length_SN_F","rank":3,"feature":"h3_freq_last","group":"F","importance":58.0},{"horizon":"h3","feature_set":"L_no_length_SN_F","rank":4,"feature":"final_consonant_ratio","group":"L","importance":47.0},{"horizon":"h3","feature_set":"L_no_length_SN_F","rank":5,"feature":"hangul_ratio","group":"L","importance":44.0},{"horizon":"h3","feature_set":"L_no_length_SN_F","rank":6,"feature":"h3_freq_max","group":"F","importance":35.0},{"horizon":"h3","feature_set":"L_no_length_SN_F","rank":7,"feature":"sn_local_sim_std_3","group":"SN","importance":31.0},{"horizon":"h3","feature_set":"L_no_length_SN_F","rank":8,"feature":"h3_freq_log_slope","group":"F","importance":29.0},{"horizon":"h3","feature_set":"L_no_length_SN_F","rank":9,"feature":"h3_post_peak_log_slope","group":"F","importance":29.0},{"horizon":"h3","feature_set":"L_no_length_SN_F","rank":10,"feature":"h3_freq_last_to_max_ratio","group":"F","importance":27.0},{"horizon":"h3","feature_set":"L_no_length_SN_F","rank":11,"feature":"h3_peak_sharpness","group":"F","importance":27.0},{"horizon":"h3","feature_set":"L_no_length_SN_F","rank":12,"feature":"h3_freq_median","group":"F","importance":25.0},{"horizon":"h3","feature_set":"L_no_length_SN_F","rank":13,"feature":"h3_freq_sum","group":"F","importance":24.0},{"horizon":"h3","feature_set":"L_no_length_SN_F","rank":14,"feature":"no_final_consonant_ratio","group":"L","importance":21.0},{"horizon":"h3","feature_set":"L_no_length_SN_F","rank":15,"feature":"sn_nearest_margin","group":"SN","importance":21.0},{"horizon":"h3","feature_set":"L_no_length_SN_F","rank":16,"feature":"sn_local_sim_std_20","group":"SN","importance":19.0},{"horizon":"h3","feature_set":"L_no_length_SN_F","rank":17,"feature":"h3_freq_entropy","group":"F","importance":19.0},{"horizon":"h3","feature_set":"L_no_length_SN_F","rank":18,"feature":"h3_freq_late_to_early_ratio","group":"F","importance":18.0},{"horizon":"h6","feature_set":"L_no_length_SN_F","rank":1,"feature":"h6_freq_last","group":"F","importance":182.0},{"horizon":"h6","feature_set":"L_no_length_SN_F","rank":2,"feature":"h6_freq_last_to_max_ratio","group":"F","importance":162.0},{"horizon":"h6","feature_set":"L_no_length_SN_F","rank":3,"feature":"sn_knn_weighted_survival_10","group":"SN","importance":125.0},{"horizon":"h6","feature_set":"L_no_length_SN_F","rank":4,"feature":"h6_post_peak_decay_rate","group":"F","importance":109.0},{"horizon":"h6","feature_set":"L_no_length_SN_F","rank":5,"feature":"h6_freq_min","group":"F","importance":90.0},{"horizon":"h6","feature_set":"L_no_length_SN_F","rank":6,"feature":"sn_knn_weighted_survival_20","group":"SN","importance":82.0},{"horizon":"h6","feature_set":"L_no_length_SN_F","rank":7,"feature":"sn_local_sim_std_5","group":"SN","importance":78.0},{"horizon":"h6","feature_set":"L_no_length_SN_F","rank":8,"feature":"sn_survival_margin","group":"SN","importance":70.0},{"horizon":"h6","feature_set":"L_no_length_SN_F","rank":9,"feature":"sn_abs_survival_margin","group":"SN","importance":58.0},{"horizon":"h6","feature_set":"L_no_length_SN_F","rank":10,"feature":"sn_knn_weighted_survival_3","group":"SN","importance":53.0},{"horizon":"h6","feature_set":"L_no_length_SN_F","rank":11,"feature":"sn_local_sim_std_10","group":"SN","importance":45.0},{"horizon":"h6","feature_set":"L_no_length_SN_F","rank":12,"feature":"sn_local_sim_std_3","group":"SN","importance":43.0},{"horizon":"h6","feature_set":"L_no_length_SN_F","rank":13,"feature":"h6_freq_slope","group":"F","importance":43.0},{"horizon":"h6","feature_set":"L_no_length_SN_F","rank":14,"feature":"sn_nearest_margin","group":"SN","importance":37.0},{"horizon":"h6","feature_set":"L_no_length_SN_F","rank":15,"feature":"sn_knn_weighted_survival_5","group":"SN","importance":35.0},{"horizon":"h6","feature_set":"L_no_length_SN_F","rank":16,"feature":"sn_sim_survivor_centroid","group":"SN","importance":32.0},{"horizon":"h6","feature_set":"L_no_length_SN_F","rank":17,"feature":"final_consonant_ratio","group":"L","importance":31.0},{"horizon":"h6","feature_set":"L_no_length_SN_F","rank":18,"feature":"h6_freq_late_mean","group":"F","importance":29.0},{"horizon":"h12","feature_set":"E_L_SN_F","rank":1,"feature":"h12_freq_last","group":"F","importance":507.0},{"horizon":"h12","feature_set":"E_L_SN_F","rank":2,"feature":"h12_freq_late_mean","group":"F","importance":293.0},{"horizon":"h12","feature_set":"E_L_SN_F","rank":3,"feature":"h12_freq_sum","group":"F","importance":217.0},{"horizon":"h12","feature_set":"E_L_SN_F","rank":4,"feature":"emb_367","group":"E","importance":177.0},{"horizon":"h12","feature_set":"E_L_SN_F","rank":5,"feature":"h12_freq_min","group":"F","importance":161.0},{"horizon":"h12","feature_set":"E_L_SN_F","rank":6,"feature":"emb_129","group":"E","importance":158.0},{"horizon":"h12","feature_set":"E_L_SN_F","rank":7,"feature":"emb_175","group":"E","importance":102.0},{"horizon":"h12","feature_set":"E_L_SN_F","rank":8,"feature":"sn_novelty_score_3","group":"SN","importance":102.0},{"horizon":"h12","feature_set":"E_L_SN_F","rank":9,"feature":"emb_145","group":"E","importance":79.0},{"horizon":"h12","feature_set":"E_L_SN_F","rank":10,"feature":"emb_262","group":"E","importance":79.0},{"horizon":"h12","feature_set":"E_L_SN_F","rank":11,"feature":"emb_283","group":"E","importance":71.0},{"horizon":"h12","feature_set":"E_L_SN_F","rank":12,"feature":"emb_366","group":"E","importance":61.0},{"horizon":"h12","feature_set":"E_L_SN_F","rank":13,"feature":"emb_000","group":"E","importance":59.0},{"horizon":"h12","feature_set":"E_L_SN_F","rank":14,"feature":"sn_nearest_survivor_sim","group":"SN","importance":54.0},{"horizon":"h12","feature_set":"E_L_SN_F","rank":15,"feature":"emb_140","group":"E","importance":52.0},{"horizon":"h12","feature_set":"E_L_SN_F","rank":16,"feature":"emb_250","group":"E","importance":52.0},{"horizon":"h12","feature_set":"E_L_SN_F","rank":17,"feature":"adjective_ratio","group":"L","importance":51.0},{"horizon":"h12","feature_set":"E_L_SN_F","rank":18,"feature":"emb_117","group":"E","importance":47.0}];
+
+
+/* ═══ REAL MODEL PREDICTIONS (151 words, text-only MLP model) ═══ */
+/* Format: [word, year, actual_label, pred_prob, [[shap_feat, shap_val],...]] */
+const WD=[["쉬었음 청년",2026,1,0.755],["쌰갈",2026,1,0.754],["영크크",2026,1,0.751],["앙",2026,1,0.75],["언발란스",2026,1,0.743],["늙크크",2026,1,0.714],["할렐야루",2026,0,0.678],["간바레",2026,0,0.637],["Chill guy",2025,1,0.923,[[" h12_freq_late_mean",15.2],["h12_freq_last",2.4],["h12_freq_min",1.6],["hangul_ratio",-0.0]]],["섹시푸드",2025,1,0.848,[["h12_freq_late_mean",15.3],["h12_freq_last",2.5],["h12_freq_min",1.5],["emb_175",0.1]]],["크보",2025,1,0.838,[["h12_freq_late_mean",15.2],["h12_freq_last",2.4],["h12_freq_min",1.6],["hangul_ratio",0.1]]],["도파민",2025,1,0.779,[["h12_freq_late_mean",15.2],["h12_freq_last",2.5],["h12_freq_min",1.6],["h12_freq_first",-0.1]]],["저속노화",2025,1,0.765,[["h12_freq_late_mean",15.2],["h12_freq_last",2.4],["h12_freq_min",1.6],["hangul_ratio",0.1]]],["미라클 모닝",2025,1,0.758,[["h12_freq_late_mean",15.2],["h12_freq_last",2.4],["h12_freq_min",1.5],["emb_175",0.1]]],["익속",2025,0,0.74,[["h12_freq_late_mean",-5.3],["h12_freq_min",-1.8],["h12_freq_last",-0.7],["h12_freq_sum",-0.1]]],["트랄랄레로 트랄랄라",2025,0,0.219,[["h12_freq_late_mean",-5.2],["h12_freq_min",-1.8],["h12_freq_last",-0.7],["hangul_ratio",-0.0]]],["햄부기햄북 햄북스딱스",2025,0,0.075,[["h12_freq_late_mean",-5.2],["h12_freq_min",-1.8],["h12_freq_last",-0.7],["hangul_ratio",-0.0]]],["티라미수 케익",2024,1,0.811,[["h12_freq_late_mean",14.9],["h12_freq_last",2.4],["h12_freq_min",1.4],["emb_129",0.2]]],["억까",2024,1,0.799,[["h12_freq_late_mean",15.3],["h12_freq_last",2.5],["h12_freq_min",1.6],["h12_freq_first",-0.1]]],["밤양갱",2024,1,0.796,[["h12_freq_late_mean",15.2],["h12_freq_last",2.5],["h12_freq_min",1.6],["h12_freq_first",-0.1]]],["럭키비키",2024,1,0.775,[["h12_freq_late_mean",15.2],["h12_freq_last",2.4],["h12_freq_min",1.6],["hangul_ratio",0.1]]],["뉴진스럽다",2024,0,0.476,[["h12_freq_late_mean",-5.2],["h12_freq_min",-1.8],["h12_freq_last",-0.7],["emb_129",0.5]]],["꽁꽁 얼어붙은 한강 위로 고양이가 걸어다닙니다",2024,0,0.095,[["h12_freq_late_mean",-6.7],["h12_freq_min",-0.6],["h12_freq_last",0.4],["h12_freq_sum",-0.1]]],["00햄",2023,1,0.825,[["h12_freq_late_mean",15.8],["h12_freq_min",1.6],["h12_freq_last",1.2],["h12_peak_sharpness",-0.1]]],["촌캉스",2023,1,0.812,[["h12_freq_late_mean",15.2],["h12_freq_last",2.4],["h12_freq_min",1.6],["hangul_ratio",0.1]]],["전업자녀",2023,1,0.463,[["h12_freq_late_mean",15.7],["h12_freq_min",1.6],["h12_freq_last",0.9],["emb_129",0.2]]],["멋지다, 연진아!",2023,0,0.073,[["h12_freq_late_mean",-5.2],["h12_freq_min",-1.8],["h12_freq_last",-0.7],["emb_129",0.5]]],["하남자",2022,1,0.873,[["h12_freq_late_mean",15.2],["h12_freq_last",2.5],["h12_freq_min",1.6],["h12_freq_first",-0.1]]],["알빠노",2022,1,0.796,[["h12_freq_late_mean",15.3],["h12_freq_last",2.5],["h12_freq_min",1.6],["h12_freq_first",-0.1]]],["중꺾마",2022,1,0.507,[["h12_freq_late_mean",15.3],["h12_freq_last",2.5],["h12_freq_min",1.6],["h12_freq_first",-0.1]]],["어쩔티비",2021,1,0.701,[["h12_freq_late_mean",15.2],["h12_freq_last",2.5],["h12_freq_min",1.6],["h12_freq_first",-0.1]]],["킹받는다",2021,1,0.81,[["h12_freq_late_mean",15.3],["h12_freq_last",2.5],["h12_freq_min",1.6],["h12_freq_first",-0.1]]],["깐부",2021,1,0.804,[["h12_freq_late_mean",15.2],["h12_freq_last",2.4],["h12_freq_min",1.6],["h12_peak_sharpness",-0.1]]],["무야호",2021,1,0.775,[["h12_freq_late_mean",15.2],["h12_freq_last",2.4],["h12_freq_min",1.6],["hangul_ratio",0.1]]],["갓생",2021,1,0.771,[["h12_freq_late_mean",15.2],["h12_freq_last",2.5],["h12_freq_min",1.6],["h12_freq_first",-0.1]]],["오또케",2020,1,0.839,[["h12_freq_late_mean",15.2],["h12_freq_last",2.5],["h12_freq_min",1.6],["h12_freq_first",-0.1]]],["깡",2020,1,0.827,[["h12_freq_late_mean",15.2],["h12_freq_last",2.4],["h12_freq_min",1.6],["hangul_ratio",0.1]]],["내돈내산",2020,1,0.804,[["h12_freq_late_mean",15.1],["h12_freq_last",2.4],["h12_freq_min",1.6],["emb_253",-0.1]]]];
+
+/* ═══ UI ═══ */
+function Card({children,style}){return<div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:"22px 20px",boxShadow:shadow,...style}}>{children}</div>;}
+function STitle({children,sub}){return<div style={{marginBottom:24}}><h2 style={{color:C.text,fontSize:20,fontWeight:700,margin:0,display:"flex",alignItems:"center",gap:9}}><span style={{width:3,height:18,background:`linear-gradient(180deg,${C.amber},${C.coral})`,borderRadius:2}}/>{children}</h2>{sub&&<p style={{color:C.textDim,fontSize:13,margin:"5px 0 0 12px"}}>{sub}</p>}</div>;}
+function Pill({children,color=C.amber,active,onClick}){return<button onClick={onClick} style={{padding:"5px 12px",borderRadius:18,cursor:"pointer",fontFamily:font,fontSize:12,fontWeight:600,background:active?`${color}14`:"transparent",border:`1px solid ${active?color+"44":C.border}`,color:active?color:C.textDim,transition:"all 0.15s"}}>{children}</button>;}
+function Badge({children,color}){return<span style={{padding:"3px 10px",borderRadius:16,background:`${color}12`,color,fontSize:11,fontWeight:600}}>{children}</span>;}
+function StatBox({label,value,unit,color=C.amber,sub}){return<Card><span style={{color:C.textDim,fontSize:12}}>{label}</span><div style={{display:"flex",alignItems:"baseline",gap:5,marginTop:3}}><span style={{color,fontSize:26,fontWeight:800,fontFamily:mono}}>{value}</span>{unit&&<span style={{color:C.textDim,fontSize:13}}>{unit}</span>}</div>{sub&&<span style={{color:C.textMuted,fontSize:11}}>{sub}</span>}</Card>;}
+function ChartCard({title,sub,children,style}){return<Card style={style}><div style={{color:C.text,fontSize:14,fontWeight:700,marginBottom:sub?4:12}}>{title}</div>{sub&&<div style={{color:C.textMuted,fontSize:12,marginBottom:12}}>{sub}</div>}{children}</Card>;}
+function Insight({color=C.amber,children,style}){return<div style={{padding:12,borderRadius:8,background:`${color}08`,border:`1px solid ${color}18`,fontSize:12,color:C.textDim,lineHeight:1.7,...style}}>{children}</div>;}
+
+/* ═══ HOME ═══ */
+function Home({go}){
+  const [vis,setVis]=useState(false);
+  useEffect(()=>{setTimeout(()=>setVis(true),80);},[]);
+  return<>
+    <section style={{minHeight:"78vh",display:"flex",flexDirection:"column",justifyContent:"center",alignItems:"center",textAlign:"center",padding:"80px 24px 40px",opacity:vis?1:0,transform:vis?"none":"translateY(20px)",transition:"all 0.8s cubic-bezier(0.16,1,0.3,1)"}}>
+      <div style={{padding:"5px 14px",borderRadius:16,background:C.amberBg,border:`1px solid ${C.amber}25`,marginBottom:28,fontSize:12,color:C.amber,fontWeight:600}}>FL Team · 유행어 생존 예측 프로젝트</div>
+      <h1 style={{fontSize:"clamp(2rem,5vw,3.2rem)",fontWeight:800,color:C.text,lineHeight:1.15,margin:0,letterSpacing:"-0.03em",maxWidth:640}}>
+        이 유행어,<br/><span style={{background:`linear-gradient(135deg,${C.amber},${C.coral})`,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>살아남을 수 있을까?</span>
+      </h1>
+      <p style={{color:C.textMid,fontSize:16,lineHeight:1.8,maxWidth:520,margin:"24px 0 40px"}}>
+        819개 유행어의 트위터 빈도 데이터와 언어학적 특성을 분석하고,<br/>모델로 장기 생존 여부를 예측합니다.
+      </p>
+      <div style={{display:"flex",gap:12,flexWrap:"wrap",justifyContent:"center"}}>
+        <button onClick={()=>go("predict")} style={{padding:"14px 32px",borderRadius:10,border:"none",background:`linear-gradient(135deg,${C.amber},${C.coral})`,color:"#fff",fontSize:15,fontWeight:700,cursor:"pointer",fontFamily:font,boxShadow:`0 4px 16px ${C.amber}33`}}>유행어 생존 예측하기</button>
+        <button onClick={()=>go("analysis")} style={{padding:"14px 32px",borderRadius:10,border:`1px solid ${C.borderDark}`,background:C.card,color:C.textMid,fontSize:15,fontWeight:600,cursor:"pointer",fontFamily:font}}>실험 결과 보기</button>
+      </div>
+    </section>
+
+    <section style={{padding:"0 24px 48px",maxWidth:1100,margin:"0 auto"}}>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:12}}>
+        <StatBox label="학습한 유행어" value="819" unit="개" sub="2018–2026 트위터 기반"/>
+        <StatBox label="최고 예측 정확도" value="1.000" color={C.green} sub="사용 빈도까지 볼 때"/>
+        <StatBox label="글자만 봤을 때" value="0.725" color={C.coral} sub="빈도 데이터 없이도"/>
+        <StatBox label="3개월 데이터로" value="0.953" color={C.purple} sub="기존 E+L+F"/>
+        <StatBox label="SN 추가 후 3개월" value="0.962" color={C.blue} sub="E+L+SN+F"/>
+        <StatBox label="빈도 없이 SN" value="0.767" color={C.green} sub="L_no_length_SN"/>
+      </div>
+    </section>
+
+    <section style={{padding:"0 24px 48px",maxWidth:1100,margin:"0 auto"}}>
+      <STitle sub="유행어 예측이 왜 필요한가">프로젝트 배경</STitle>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(300px,1fr))",gap:14}}>
+        {[
+          {icon:"💬",title:"세대 간 소통 단절",desc:"유행어를 모르면 대화에서 소외되고, 지난 유행어를 쓰면 어색합니다. 어떤 단어가 살아남을지 객관적 기준이 필요합니다.",color:C.amber},
+          {icon:"📉",title:"기업 마케팅 실패",desc:"오비맥주 '필굿'은 신조어 마케팅 후 매출 9.4% 하락. GS25는 '싹싹김치'로 불매운동에 직면. 유행어의 유효기간을 모르면 리스크입니다.",color:C.coral},
+          {icon:"⚠️",title:"혐오 표현 정착",desc:"일부 유행어에 혐오·차별 표현이 포함됩니다. 정착 가능성이 높은 혐오 표현을 조기에 포착하면 언어 정책 수립에 활용할 수 있습니다.",color:C.red},
+        ].map(c=><Card key={c.title}><div style={{fontSize:24,marginBottom:10}}>{c.icon}</div><div style={{color:c.color,fontSize:15,fontWeight:700,marginBottom:6}}>{c.title}</div><div style={{color:C.textDim,fontSize:13,lineHeight:1.7}}>{c.desc}</div></Card>)}
+      </div>
+    </section>
+
+    <section style={{padding:"0 24px 48px",maxWidth:1100,margin:"0 auto"}}>
+      <STitle sub="이 페이지에서 자주 나오는 말">먼저 알아두면 좋은 4가지</STitle>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))",gap:14}}>
+        {[
+          {tag:"E",color:C.purple,t:"의미 벡터",d:"유행어의 뜻을 숫자로 바꾼 값입니다. 비슷한 뜻이면 숫자도 비슷해져요."},
+          {tag:"L",color:C.amber,t:"언어 특징",d:"글자 수, 한글 비율, 발음 리듬처럼 단어의 겉모습에서 뽑아낸 특징입니다."},
+          {tag:"SN",color:C.blue,t:"의미 이웃",d:"이미 살아남은 유행어들과 의미적으로 얼마나 가까운지 나타내는 특징입니다."},
+          {tag:"F",color:C.coral,t:"사용 빈도",d:"트위터에서 그 유행어가 실제로 얼마나 자주 쓰였는지를 나타내는 숫자입니다."},
+        ].map(c=><Card key={c.tag} style={{borderTop:`3px solid ${c.color}`}}>
+          <div style={{display:"flex",alignItems:"baseline",gap:8,marginBottom:6}}>
+            <span style={{fontSize:22,fontWeight:900,color:c.color,fontFamily:mono}}>{c.tag}</span>
+            <span style={{fontSize:15,fontWeight:700,color:C.text}}>{c.t}</span>
+          </div>
+          <div style={{color:C.textDim,fontSize:13,lineHeight:1.7}}>{c.d}</div>
+        </Card>)}
+      </div>
+      <Insight color={C.green} style={{marginTop:14}}>이 네 가지를 조합해 "이 유행어가 오래 살아남을까?"를 예측합니다. 본문에 나오는 <b>E·L·F·SN</b> 같은 약자에 마우스를 올리면 쉬운 설명이 나옵니다.</Insight>
+    </section>
+
+    <section style={{padding:"0 24px 48px",maxWidth:1100,margin:"0 auto"}}>
+      <STitle sub="핵심 실험 결과 미리보기">데이터가 쌓일수록 예측이 정확해질까?</STitle>
+      <Card>
+        <ResponsiveContainer width="100%" height={260}>
+          <ComposedChart data={horizonData}>
+            <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
+            <XAxis dataKey="name" tick={{fill:C.textDim,fontSize:11}} axisLine={{stroke:C.border}} tickLine={false}/>
+            <YAxis domain={[0.5,1.05]} tick={{fill:C.textMuted,fontSize:11}} axisLine={false} tickLine={false}/>
+            <Tooltip contentStyle={tt}/>
+            <Area type="monotone" dataKey="auroc" fill={`${C.amber}15`} stroke={C.amber} strokeWidth={2.5} dot={{fill:C.amber,r:6,strokeWidth:2,stroke:"#fff"}} name="AUROC"/>
+            <Line type="monotone" dataKey="f1" stroke={C.coral} strokeWidth={2} strokeDasharray="5 5" dot={{fill:C.coral,r:4}} name="F1"/>
+          </ComposedChart>
+        </ResponsiveContainer>
+        <Insight color={C.amber}>
+          <b style={{color:C.amber}}>핵심:</b> 글자만 봐도 <Term k="AUROC">예측 정확도</Term> 0.725 → <b style={{color:C.amber}}>등장 1개월 사용 데이터를 더하면 0.871</b> → 3개월이면 0.953으로 초기에도 꽤 정확 → 6개월이면 거의 완벽(0.998).
+        </Insight>
+      </Card>
+    </section>
+
+    <section style={{padding:"0 24px 80px",maxWidth:1100,margin:"0 auto"}}>
+      <STitle>둘러보기</STitle>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(230px,1fr))",gap:12}}>
+        {[{id:"predict",icon:"🔮",t:"생존 예측",d:"유행어 입력 → 장기 생존 여부 예측",c:C.amber},{id:"map",icon:"🗺️",t:"의미 지도",d:"819개 유행어를 의미별로 펼친 지도",c:C.blue},{id:"analysis",t:"실험 결과",icon:"📊",d:"6가지 실험으로 무엇이 중요한지 확인",c:C.purple},{id:"sn",icon:"🧭",t:"특징 조합 실험",d:"의미·언어·의미 이웃·빈도 조합 비교",c:C.blue},{id:"data",icon:"📈",t:"데이터 & 특징",d:"819개 데이터셋 · 4가지 특징 그룹",c:C.green}].map(c=>(
+          <div key={c.id} onClick={()=>go(c.id)} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"20px 18px",cursor:"pointer",boxShadow:shadow}} onMouseEnter={e=>e.currentTarget.style.borderColor=c.c+"55"} onMouseLeave={e=>e.currentTarget.style.borderColor=C.border}>
+            <span style={{fontSize:24}}>{c.icon}</span><div style={{color:c.c,fontSize:15,fontWeight:700,marginTop:8}}>{c.t}</div><div style={{color:C.textDim,fontSize:12,marginTop:4}}>{c.d}</div>
+          </div>
+        ))}
+      </div>
+    </section>
+  </>;
+}
+
+/* ═══ PREDICT (simplified: text only → binary 0/1) ═══ */
+function Predict(){
+  const [word,setWord]=useState("");
+  const [result,setResult]=useState(null);
+  const [loading,setLoading]=useState(false);
+
+  const wa=useMemo(()=>{
+    if(!word) return null;
+    const w=word.trim(),len=w.replace(/\s/g,"").length;
+    const hangul=(w.match(/[가-힣ㄱ-ㅎㅏ-ㅣ]/g)||[]).length;
+    const eng=(w.match(/[a-zA-Z]/g)||[]).length;
+    const tokens=w.split(/\s+/).length;
+    const hasCho=/[ㄱ-ㅎ]/.test(w);
+    const hasRepeat=/(.)\1{2,}/.test(w);
+    return {len,hangulRatio:len?Math.round(hangul/len*100):0,engRatio:len?Math.round(eng/len*100):0,tokens,hasCho,hasRepeat,isWord:tokens===1&&len<=10,isSent:tokens>=3,syllables:hangul};
+  },[word]);
+
+  const predict=()=>{
+    if(!word.trim()) return;
+    setLoading(true);
+    setTimeout(()=>{
+      const w=word.trim();
+      // Check if word exists in real dataset
+      const match=WD.find(d=>d[0]===w||d[0].includes(w)||w.includes(d[0]));
+      let label,prob,features;
+      if(match){
+        prob=match[3];
+        label=prob>=0.5?1:0;
+        features=match[4]?Object.fromEntries(match[4].map(([f,v])=>[f,(v>0?"+":"")+v.toFixed(1)])):{"(빈도 데이터 없음)":"—"};
+      } else {
+        // Mock for unknown words
+        const h=[...w].reduce((a,c)=>a+c.charCodeAt(0),0);
+        const r=((h*16807)%2147483647)/2147483647;
+        prob=Math.round((0.15+r*0.7)*100)/100;
+        label=prob>=0.5?1:0;
+        features={"hangul_ratio":wa.hangulRatio>80?"+0.3":"-0.1","syllable_count":wa.syllables<=4?"+0.2":"-0.3","is_word_like":wa.isWord?"+0.15":"-0.1","(참고 예측)":"—"};
+      }
+      setResult({label,prob,features,isReal:!!match});
+      setLoading(false);
+    },800);
+  };
+
+  return<div style={{padding:"32px 24px 80px",maxWidth:900,margin:"0 auto"}}>
+    <STitle sub="유행어를 입력하면 오래 살아남을지 예측합니다 (0: 단기유행 / 1: 장기 생존)">유행어 생존 예측</STitle>
+
+    <Card style={{marginBottom:20}}>
+      <div style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:14}}>예측할 유행어를 입력하세요</div>
+      <div style={{display:"flex",gap:12}}>
+        <input value={word} onChange={e=>{setWord(e.target.value);setResult(null);}} placeholder="예: 럭키비키, 갓생, 트랄랄레로..."
+          onKeyDown={e=>e.key==="Enter"&&predict()}
+          style={{flex:1,padding:"14px 18px",borderRadius:10,background:C.bg,border:`1px solid ${C.border}`,color:C.text,fontSize:16,fontFamily:font,outline:"none"}}
+          onFocus={e=>e.target.style.borderColor=C.amber} onBlur={e=>e.target.style.borderColor=C.border}/>
+        <button onClick={predict} disabled={!word.trim()||loading} style={{padding:"14px 28px",borderRadius:10,border:"none",background:!word.trim()?C.surfaceLight:`linear-gradient(135deg,${C.amber},${C.coral})`,color:!word.trim()?C.textMuted:"#fff",fontSize:14,fontWeight:700,cursor:word.trim()?"pointer":"not-allowed",fontFamily:font,whiteSpace:"nowrap"}}>
+          {loading?"분석 중...":"예측하기"}
+        </button>
+      </div>
+
+      {/* Auto linguistic analysis */}
+      {wa&&word.trim()&&<div style={{marginTop:14,padding:14,borderRadius:10,background:C.bg,border:`1px solid ${C.border}`}}>
+        <div style={{fontSize:11,color:C.textMuted,marginBottom:8}}>단어에서 자동으로 뽑은 <Term k="L" /> (65개 중 일부)</div>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+          {[
+            ["글자 수",wa.len],["한글 비율",wa.hangulRatio+"%"],["영어 비율",wa.engRatio+"%"],
+            ["공백 단어 수",wa.tokens],["음절 수",wa.syllables],
+            wa.isWord&&["단어형","✓"],wa.isSent&&["문장형","✓"],
+            wa.hasCho&&["초성 포함","✓"],wa.hasRepeat&&["반복문자","✓"],
+          ].filter(Boolean).map(([k,v])=>(
+            <span key={k} style={{padding:"4px 10px",borderRadius:6,background:C.card,border:`1px solid ${C.border}`,fontSize:11,color:C.textDim}}>
+              <b style={{color:C.amber}}>{v}</b> {k}
+            </span>
+          ))}
+        </div>
+        <div style={{fontSize:10,color:C.textMuted,marginTop:6}}>* 의미 벡터(<Term k="E" />)와 형태소 분석 결과를 함께 활용합니다</div>
+      </div>}
+    </Card>
+
+    {/* Result */}
+    {result&&<Card style={{border:`1px solid ${result.label===1?C.green:C.red}30`}}>
+      <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:20}}>
+        <div style={{width:64,height:64,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",fontSize:28,fontWeight:900,fontFamily:mono,
+          background:result.label===1?C.greenBg:C.redBg,color:result.label===1?C.green:C.red,border:`2px solid ${result.label===1?C.green:C.red}33`}}>
+          {result.label}
+        </div>
+        <div>
+          <div style={{fontSize:24,fontWeight:800,color:C.text}}>"{word}"</div>
+          <div style={{display:"flex",gap:8,marginTop:4}}>
+            <Badge color={result.label===1?C.green:C.red}>{result.label===1?"장기 생존 예상":"단기유행 / 미유행 예상"}</Badge>
+            <span style={{fontSize:12,color:C.textDim,alignSelf:"center"}}>확률: {(result.prob*100).toFixed(1)}%</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Confidence bar */}
+      <div style={{background:C.bg,borderRadius:10,padding:18,marginBottom:16}}>
+        <div style={{display:"flex",justifyContent:"space-between",fontSize:12,marginBottom:8}}>
+          <span style={{color:C.red,fontWeight:600}}>단기유행 (0)</span>
+          <span style={{color:C.textMuted}}>예측 확률</span>
+          <span style={{color:C.green,fontWeight:600}}>장기생존 (1)</span>
+        </div>
+        <div style={{height:12,background:`linear-gradient(90deg, ${C.red}33, ${C.surfaceLight} 45%, ${C.surfaceLight} 55%, ${C.green}33)`,borderRadius:6,position:"relative"}}>
+          <div style={{position:"absolute",left:`${result.prob*100}%`,top:-4,width:20,height:20,borderRadius:"50%",background:result.label===1?C.green:C.red,border:"3px solid #fff",boxShadow:shadow,transform:"translateX(-50%)"}}/>
+        </div>
+        <div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:C.textMuted,marginTop:4}}><span>0%</span><span>50% (threshold)</span><span>100%</span></div>
+      </div>
+
+      {/* SHAP-like explanation */}
+      <div style={{fontSize:13,fontWeight:600,color:C.text,marginBottom:10}}>예측 근거 (<Term k="SHAP">SHAP · 어떤 특징이 결과를 밀었나</Term>)</div>
+      <div style={{background:C.bg,borderRadius:10,padding:16}}>
+        {(()=>{
+          const entries=Object.entries(result.features);
+          const nums=entries.map(([_,v])=>Number.isFinite(parseFloat(v))?Math.abs(parseFloat(v)):0);
+          const maxAbs=Math.max(...nums,1);
+          return entries.map(([name,val],i)=>{
+            const num=parseFloat(val);
+            const hasNum=Number.isFinite(num);
+            const isPos=hasNum?num>=0:String(val).startsWith("+");
+            const width=hasNum?Math.min(Math.abs(num)/maxAbs*46,46):0;
+            return <div key={name} style={{display:"grid",gridTemplateColumns:"140px 1fr 52px",alignItems:"center",gap:10,marginBottom:i<entries.length-1?10:0}}>
+              <span style={{color:C.textDim,fontSize:11,textAlign:"right",minWidth:0,overflow:"hidden",textOverflow:"ellipsis"}}>{name}</span>
+              <div style={{height:18,position:"relative",overflow:"hidden"}}>
+                <div style={{position:"absolute",left:"50%",top:0,bottom:0,width:1,background:C.border}}/>
+                {hasNum && (isPos
+                  ? <div style={{position:"absolute",left:"50%",width:`${width}%`,height:12,top:3,borderRadius:"0 4px 4px 0",background:`${C.green}88`,marginLeft:2}}/>
+                  : <div style={{position:"absolute",right:"50%",width:`${width}%`,height:12,top:3,borderRadius:"4px 0 0 4px",background:`${C.red}88`,marginRight:2}}/>)}
+              </div>
+              <span style={{color:hasNum?(isPos?C.green:C.red):C.textMuted,fontSize:12,fontFamily:mono,fontWeight:600,textAlign:"right"}}>{val}</span>
+            </div>;
+          });
+        })()}
+        <div style={{display:"flex",justifyContent:"center",gap:16,marginTop:8,fontSize:10,color:C.textMuted}}><span>← 생존 확률 ↓</span><span>생존 확률 ↑ →</span></div>
+      </div>
+
+      <Insight color={result.label===1?C.green:C.red}>
+        <b style={{color:result.label===1?C.green:C.red}}>{result.isReal?"데이터셋 기준 결과":"참고 예측"}:</b> {result.isReal?`이 유행어는 데이터셋(819개)에 포함된 단어입니다. 표시된 확률은 글자 정보 기반 예측값이고, 아래 근거는 사용 빈도까지 함께 본 모델 기준입니다.`:`이 유행어는 데이터셋에 없는 단어이므로 참고용 예측값을 표시합니다.`}
+      </Insight>
+    </Card>}
+  </div>;
+}
+
+/* ═══ ANALYSIS (5 experiments) ═══ */
+function Analysis(){
+  const [exp,setExp]=useState("horizon");
+  const [shapWord,setShapWord]=useState("럭키비키");
+  const [shapSearch,setShapSearch]=useState("");
+  // Build SHAP from real WD data
+  const shapResults=useMemo(()=>{
+    const q=shapSearch.trim().toLowerCase();
+    if(!q) return WD.filter(d=>d[4]).slice(0,8);
+    return WD.filter(d=>d[0].toLowerCase().includes(q)&&d[4]);
+  },[shapSearch]);
+  const selectedShap=WD.find(d=>d[0]===shapWord);
+  const shapD=selectedShap&&selectedShap[4]?selectedShap[4]:[];
+  const maxS=Math.max(...shapD.map(d=>Math.abs(d[1])),1);
+
+  const TABS=[{id:"horizon",l:"🕐 관찰 기간"},{id:"model",l:"🏆 모델 비교"},{id:"ablation",l:"🧪 특징 빼보기"},{id:"importance",l:"📊 무엇이 중요한가"},{id:"kd",l:"🎓 지식 전달"}];
+
+  return<div style={{padding:"32px 24px 80px",maxWidth:1100,margin:"0 auto"}}>
+    <STitle sub="무엇이 유행어의 생존을 결정하는지 분석한 실험들">실험 결과</STitle>
+
+    {/* Experiment Tabs */}
+    <div style={{display:"flex",gap:4,flexWrap:"wrap",marginBottom:24}}>
+      {TABS.map(t=><Pill key={t.id} active={exp===t.id} color={C.purple} onClick={()=>setExp(t.id)}>{t.l}</Pill>)}
+    </div>
+
+    {/* ── Horizon ── */}
+    {exp==="horizon"&&<>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:10,marginBottom:20}}>
+        {horizonData.map(h=>{const c=h.auroc>=0.99?C.green:h.auroc>=0.9?C.amber:h.auroc>=0.8?C.orange:C.coral;return<Card key={h.name}><div style={{fontSize:11,color:C.textMuted}}>{h.name}</div><div style={{fontSize:24,fontWeight:800,color:c,fontFamily:mono}}>{h.auroc.toFixed(3)}</div><div style={{fontSize:10,color:C.textDim}}>{h.desc}</div></Card>;})}
+      </div>
+      <ChartCard title="데이터가 쌓일수록 예측 정확도가 어떻게 변하나" sub="글자만 → 1개월 → 3개월 → 6개월 → 12개월">
+        <ResponsiveContainer width="100%" height={280}>
+          <LineChart data={horizonData}>
+            <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
+            <XAxis dataKey="name" tick={{fill:C.textDim,fontSize:10}} axisLine={{stroke:C.border}} tickLine={false}/>
+            <YAxis domain={[0.4,1.05]} tick={{fill:C.textMuted,fontSize:11}} axisLine={false} tickLine={false}/>
+            <Tooltip contentStyle={tt}/>
+            <Line type="monotone" dataKey="auroc" stroke={C.amber} strokeWidth={3} dot={{fill:C.amber,r:6,strokeWidth:2,stroke:"#fff"}} name="예측 정확도(AUROC)"/>
+            <Line type="monotone" dataKey="f1" stroke={C.coral} strokeWidth={2} dot={{fill:C.coral,r:4}} name="균형 점수(F1)"/>
+            <Line type="monotone" dataKey="bal" stroke={C.purple} strokeWidth={2} dot={{fill:C.purple,r:4}} name="균형 정확도"/>
+            <Legend wrapperStyle={{fontSize:11}}/>
+          </LineChart>
+        </ResponsiveContainer>
+        <Insight color={C.amber}><b style={{color:C.amber}}>핵심 발견:</b> 글자만 봐도 <Term k="AUROC">예측 정확도</Term> 0.725 — 유행어 글자 자체에 생존 신호가 들어있다는 뜻. <b style={{color:C.amber}}>등장 1개월 사용 데이터를 더하면 한 번에 +0.146</b>으로 가장 크게 뜀. 3개월이면 초기에도 꽤 정확(0.953), 6개월이면 거의 완벽(0.998).</Insight>
+      </ChartCard>
+    </>}
+
+    {/* ── Model Comparison ── */}
+    {exp==="model"&&<>
+      <ChartCard title="실험 1: 어떤 모델이 가장 잘 맞히나" sub="모든 정보(글자+빈도)를 똑같이 주고 6개 모델 비교">
+        <ResponsiveContainer width="100%" height={280}>
+          <BarChart data={modelComp} layout="vertical" margin={{left:100}}>
+            <XAxis type="number" domain={[0.85,1.01]} tick={{fill:C.textMuted,fontSize:11}} axisLine={{stroke:C.border}} tickLine={false}/>
+            <YAxis type="category" dataKey="name" tick={{fill:C.textDim,fontSize:12}} axisLine={false} tickLine={false}/>
+            <Tooltip contentStyle={tt}/>
+            <Bar dataKey="auroc" name="예측 정확도(AUROC)" barSize={14} radius={[0,6,6,0]}>
+              {modelComp.map((_,i)=><Cell key={i} fill={i<4?C.green:i===4?C.amber:C.coral}/>)}
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+        <div style={{marginTop:14}}>
+          <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+            <thead><tr>{["모델","예측 정확도","균형 정확도"].map(h=><th key={h} style={{padding:"8px 12px",textAlign:"left",color:C.textDim,fontWeight:600,borderBottom:`2px solid ${C.border}`,fontSize:12}}>{h}</th>)}</tr></thead>
+            <tbody>{modelComp.map((m,i)=><tr key={i} style={{borderBottom:`1px solid ${C.border}`}}>
+              <td style={{padding:"8px 12px",fontWeight:600,color:C.text}}>{m.name}</td>
+              <td style={{padding:"8px 12px",fontFamily:mono,color:m.auroc>=1?C.green:C.amber,fontWeight:700}}>{m.auroc.toFixed(3)}</td>
+              <td style={{padding:"8px 12px",fontFamily:mono,color:C.textMid}}>{m.bal.toFixed(3)}</td>
+            </tr>)}</tbody>
+          </table>
+        </div>
+        <Insight color={C.green}>트리 계열 4개 모델 모두 정확도 1.0 달성. 12개월치 <Term k="F" />가 생존 여부를 거의 완벽히 설명하기 때문입니다. 모델 종류보다 "어떤 데이터를 주느냐"가 훨씬 중요하다는 의미입니다.</Insight>
+      </ChartCard>
+    </>}
+
+    {/* ── Ablation ── */}
+    {exp==="ablation"&&<>
+      <ChartCard title="실험 2: 정보를 하나씩 빼보면" sub="의미(E) · 언어 특징(L) · 의미 이웃(SN) · 사용 빈도(F)를 조합해 비교">
+        <ResponsiveContainer width="100%" height={260}>
+          <BarChart data={ablationData} layout="vertical" margin={{left:100}}>
+            <XAxis type="number" domain={[0.6,1.05]} tick={{fill:C.textMuted,fontSize:11}} axisLine={{stroke:C.border}} tickLine={false}/>
+            <YAxis type="category" dataKey="name" tick={{fill:C.textDim,fontSize:11}} axisLine={false} tickLine={false}/>
+            <Tooltip contentStyle={tt} formatter={v=>[v.toFixed(3),"예측 정확도"]}/>
+            <Bar dataKey="auroc" barSize={16} radius={[0,6,6,0]}>
+              {ablationData.map((d,i)=><Cell key={i} fill={d.auroc>=1?C.green:d.auroc>=0.72?C.amber:C.coral}/>)}
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:10,marginTop:14}}>
+          {[{l:"빈도(F) 포함 시",v:"1.000",s:"조합 무관 거의 만점",c:C.green},{l:"글자만 (E+L)",v:"0.725",s:"현실적 기준점",c:C.amber},{l:"의미만 (E)",v:"0.711",s:"뜻 정보만",c:C.purple},{l:"언어 특징만 (L)",v:"0.706",s:"겉모습만",c:C.coral}].map(i=>
+            <Card key={i.l}><div style={{fontSize:11,color:C.textMuted}}>{i.l}</div><div style={{fontSize:22,fontWeight:800,color:i.c,fontFamily:mono}}>{i.v}</div><div style={{fontSize:10,color:C.textDim}}>{i.s}</div></Card>
+          )}
+        </div>
+        <Insight color={C.amber}>3개월 기준으로는 <b>E+L+SN+F</b> 조합이 AUROC 0.962로 가장 높았습니다. 빈도 없이 볼 때는 <b>L+SN</b> 조합이 0.767로 E+L 기준선보다 높게 나타났습니다.</Insight>
+      </ChartCard>
+    </>}
+
+    {/* ── Feature Importance ── */}
+    {exp==="importance"&&<>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(320px,1fr))",gap:14,marginBottom:16}}>
+        <ChartCard title="어떤 정보가 결정적일까" sub="E·L·SN·F 그룹별 상위 특징 중요도">
+          <ResponsiveContainer width="100%" height={200}>
+            <BarChart data={groupImp}>
+              <XAxis dataKey="name" tick={{fill:C.textDim,fontSize:11}} axisLine={{stroke:C.border}} tickLine={false}/>
+              <YAxis tick={{fill:C.textMuted,fontSize:11}} axisLine={false} tickLine={false}/>
+              <Tooltip contentStyle={tt}/>
+              <Bar dataKey="val" name="중요도" barSize={48} radius={[6,6,0,0]}>
+                {groupImp.map((g,i)=><Cell key={i} fill={g.color}/>)}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+          <Insight>3개월 조합에서는 의미(E)와 사용 빈도(F)가 크게 작동하고, 의미 이웃(SN)도 별도 신호로 포함됩니다. SN은 특히 빈도 정보가 적거나 없는 조건에서 보완 역할이 큽니다.</Insight>
+        </ChartCard>
+
+        <ChartCard title="상위 특징 10개" sub="E·L·SN·F 조합 기준">
+          <ResponsiveContainer width="100%" height={280}>
+            <BarChart data={shapData} layout="vertical" margin={{left:120}}>
+              <XAxis type="number" tick={{fill:C.textMuted,fontSize:11}} axisLine={{stroke:C.border}} tickLine={false}/>
+              <YAxis type="category" dataKey="name" tick={{fill:C.textDim,fontSize:10}} axisLine={false} tickLine={false} width={120}/>
+              <Tooltip contentStyle={tt}/>
+              <Bar dataKey="val" barSize={14} radius={[0,5,5,0]}>
+                {shapData.map((d,i)=><Cell key={i} fill={d.group==="F"?C.coral:d.group==="E"?C.purple:d.group==="SN"?C.blue:C.amber}/>)}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+          <div style={{display:"flex",gap:12,marginTop:8}}>{[["사용 빈도(F)",C.coral],["의미(E)",C.purple],["의미 이웃(SN)",C.blue],["언어 특징(L)",C.amber]].map(([l,c])=><span key={l} style={{fontSize:10,color:c,display:"flex",alignItems:"center",gap:3}}><span style={{width:8,height:8,borderRadius:2,background:c}}/>{l}</span>)}</div>
+          <Insight>사용 빈도와 의미 벡터가 상위에 있고, SN 특징도 주요 순위에 포함됩니다. 이는 의미 이웃 정보가 별도의 판단 근거로 쓰였다는 점을 보여줍니다.</Insight>
+        </ChartCard>
+      </div>
+
+      {/* Interactive SHAP per word */}
+      <ChartCard title="유행어별 예측 근거 보기" sub="유행어를 검색하면 어떤 특징이 결과를 어느 방향으로 밀었는지 보여줍니다">
+        <div style={{display:"flex",gap:10,marginBottom:12,flexWrap:"wrap",alignItems:"center"}}>
+          <input value={shapSearch} onChange={e=>setShapSearch(e.target.value)} placeholder="유행어 검색 (예: 갓생, 킹받, 럭키...)" style={{padding:"8px 14px",borderRadius:8,border:`1px solid ${C.border}`,background:C.bg,color:C.text,fontSize:13,fontFamily:font,outline:"none",width:240}} onFocus={e=>e.target.style.borderColor=C.amber} onBlur={e=>e.target.style.borderColor=C.border}/>
+          <span style={{fontSize:11,color:C.textMuted}}>{shapResults.length}개 결과</span>
+        </div>
+        <div style={{display:"flex",gap:5,marginBottom:16,flexWrap:"wrap"}}>
+          {shapResults.slice(0,12).map(d=><Pill key={d[0]} active={shapWord===d[0]} color={d[2]===1?C.green:C.coral} onClick={()=>setShapWord(d[0])}>{d[0].slice(0,12)}</Pill>)}
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(300px,1fr))",gap:16}}>
+          <div style={{background:C.bg,borderRadius:10,padding:16}}>
+            <div style={{fontSize:13,fontWeight:600,color:C.text,marginBottom:4}}>"{shapWord}"</div>
+            <div style={{fontSize:11,color:C.textMuted,marginBottom:12}}>
+              {selectedShap?`${selectedShap[1]}년 · 실제 결과: ${selectedShap[2]===1?"장기 생존":"단기 유행"} · 예측 확률 ${(selectedShap[3]*100).toFixed(1)}%`:"데이터 없음"}
+            </div>
+            {shapD.length>0?shapD.map((f,i)=>{const pct=Math.abs(f[1])/maxS*100;const isPos=f[1]>0;return<div key={i} style={{display:"flex",alignItems:"center",gap:8,marginBottom:9}}>
+              <span style={{color:C.textDim,fontSize:11,width:130,textAlign:"right",flexShrink:0}}>{f[0]}</span>
+              <div style={{flex:1,height:18,position:"relative"}}><div style={{position:"absolute",left:"50%",top:0,bottom:0,width:1,background:C.border}}/>
+                {isPos?<div style={{position:"absolute",left:"50%",width:`${pct/2.2}%`,height:14,top:2,borderRadius:"0 4px 4px 0",background:`${C.green}aa`,marginLeft:2}}/>
+                :<div style={{position:"absolute",right:"50%",width:`${pct/2.2}%`,height:14,top:2,borderRadius:"4px 0 0 4px",background:`${C.red}aa`,marginRight:2}}/>}
+              </div>
+              <span style={{color:isPos?C.green:C.red,fontSize:12,fontFamily:mono,fontWeight:600,width:40,textAlign:"right"}}>{f[1]>0?"+":""}{f[1]}</span>
+            </div>;}):<div style={{color:C.textMuted,fontSize:12,padding:20,textAlign:"center"}}>이 단어는 예측 근거 데이터가 없습니다 (사용 빈도 미보유)</div>}
+            {shapD.length>0&&<div style={{display:"flex",justifyContent:"center",gap:16,marginTop:6,fontSize:10,color:C.textMuted}}><span>← 단기유행 쪽</span><span>장기생존 쪽 →</span></div>}
+          </div>
+          <div style={{fontSize:12,color:C.textDim,lineHeight:1.8}}>
+            <div style={{fontSize:13,fontWeight:600,color:C.text,marginBottom:8}}>읽는 법</div>
+            <p style={{margin:"0 0 8px"}}>각 막대는 그 특징이 이 단어의 예측을 어느 쪽으로, 얼마나 밀었는지 보여줍니다.</p>
+            <p style={{margin:"0 0 8px"}}><span style={{color:C.green}}>▶ 오른쪽(+)</span>: 장기 생존 쪽으로 밀어줌</p>
+            <p style={{margin:"0 0 8px"}}><span style={{color:C.red}}>◀ 왼쪽(−)</span>: 단기 유행 쪽으로 밀어줌</p>
+            <p style={{margin:"0 0 8px"}}><b>freq_late_mean</b>(후반부 평균 사용량)이 거의 모든 단어에서 가장 큰 영향을 줍니다. 시간이 지나도 계속 쓰이느냐가 생존을 거의 결정한다는 뜻입니다.</p>
+            <div style={{padding:10,borderRadius:6,background:C.purpleBg,marginTop:8,fontSize:11}}>
+              <b style={{color:C.purple}}>참고:</b> 이 근거는 사용 빈도까지 함께 보는 모델 기준입니다. 글자만 쓰는 모델은 근거 분포가 다릅니다.
+            </div>
+          </div>
+        </div>
+      </ChartCard>
+    </>}
+
+    {/* ── Knowledge Distillation ── */}
+    {exp==="kd"&&<>
+      <ChartCard title="실험 5: 큰 모델의 지식을 작은 모델에 전달하기" sub="빈도까지 보는 모델(선생) → 글자만 보는 모델(학생)에게 가르치기">
+        <div style={{padding:14,borderRadius:10,background:C.bg,marginBottom:16,fontSize:13,color:C.textDim,lineHeight:1.7}}>
+          <b style={{color:C.text}}>목적:</b> 사용 빈도까지 보는 '선생 모델'의 판단 감각을, 글자만 보는 '학생 모델'에게 전달해서 빈도 없이도 잘 맞히게 만들 수 있는지 확인하는 실험입니다.
+          <br/><b style={{color:C.text}}>방법:</b> 학생이 정답뿐 아니라 선생의 예측까지 따라 배우도록 학습시켰습니다 (이를 <Term k="KNN">지식 증류</Term>라고 부릅니다).
+        </div>
+        <ResponsiveContainer width="100%" height={240}>
+          <BarChart data={kdData}>
+            <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
+            <XAxis dataKey="name" tick={{fill:C.textDim,fontSize:10}} axisLine={{stroke:C.border}} tickLine={false}/>
+            <YAxis domain={[0.5,1.05]} tick={{fill:C.textMuted,fontSize:11}} axisLine={false} tickLine={false}/>
+            <Tooltip contentStyle={tt}/>
+            <Bar dataKey="auroc" name="예측 정확도(AUROC)" barSize={28} radius={[4,4,0,0]}>
+              {kdData.map((d,i)=><Cell key={i} fill={i===0?C.green:i===1?C.amber:C.purple}/>)}
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+        <div style={{marginTop:14}}>
+          <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+            <thead><tr>{["모델","사용 정보","예측 정확도","균형 정확도"].map(h=><th key={h} style={{padding:"8px 10px",textAlign:"left",color:C.textDim,fontWeight:600,borderBottom:`2px solid ${C.border}`,fontSize:12}}>{h}</th>)}</tr></thead>
+            <tbody>{kdData.map((d,i)=><tr key={i} style={{borderBottom:`1px solid ${C.border}`,background:i===0?C.greenBg:undefined}}>
+              <td style={{padding:"8px 10px",fontWeight:600,color:C.text}}>{d.name}</td>
+              <td style={{padding:"8px 10px",color:C.textDim,fontSize:12}}>{d.desc}</td>
+              <td style={{padding:"8px 10px",fontFamily:mono,color:d.auroc>=1?C.green:C.textMid,fontWeight:700}}>{d.auroc.toFixed(3)}</td>
+              <td style={{padding:"8px 10px",fontFamily:mono,color:C.textMid}}>{d.bal.toFixed(3)}</td>
+            </tr>)}</tbody>
+          </table>
+        </div>
+        <Insight color={C.coral}>
+          <b style={{color:C.coral}}>결론:</b> 지식 전달 효과가 거의 없었습니다(기준 0.684 대비 최대 +0.007). 선생 모델의 실력 대부분이 '사용 빈도'에서 나오는데, 학생은 빈도를 아예 못 보기 때문에 전달이 어려웠습니다.
+        </Insight>
+      </ChartCard>
+    </>}
+  </div>;
+}
+
+
+/* ═══ 특징 조합 실험 페이지 ═══ */
+function SNExperiment(){
+  const [metric,setMetric]=useState("auroc");
+  const [impView,setImpView]=useState("h3_E_L_SN_F");
+  const [groupView,setGroupView]=useState("E_L_SN_F");
+  const metricNames={auroc:"AUROC",auprc:"AUPRC",f1:"F1",bal:"균형 정확도",precision:"Precision",recall:"Recall"};
+  const impViews=[
+    ["all_no_F_L_no_length_SN","빈도 없이 · L+SN"],
+    ["h1_L_no_length_SN_F","1개월 · L+SN+F"],
+    ["h3_E_L_SN_F","3개월 · E+L+SN+F"],
+    ["h3_L_no_length_SN_F","3개월 · L+SN+F"],
+    ["h6_L_no_length_SN_F","6개월 · L+SN+F"],
+    ["h12_E_L_SN_F","12개월 · E+L+SN+F"],
+  ];
+  const impRows=snTopFeatures.filter(r=>`${r.horizon}_${r.feature_set}`===impView).slice(0,15);
+  const groupRows=snGroupImportance.filter(r=>r.feature_set===groupView);
+  const fmt=v=>typeof v==="number"?v.toFixed(3):v;
+  return<div style={{padding:"32px 24px 80px",maxWidth:1100,margin:"0 auto"}}>
+    <STitle sub="의미(E), 언어 특징(L), 의미 이웃(SN), 사용 빈도(F)를 조합해 성능을 비교합니다">특징 조합 실험</STitle>
+
+    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(170px,1fr))",gap:10,marginBottom:20}}>
+      <StatBox label="SN 특징 수" value="43" unit="개" color={C.blue} sub="의미 이웃 기반"/>
+      <StatBox label="빈도 없이 최고" value="0.767" color={C.purple} sub="L_no_length_SN AUROC"/>
+      <StatBox label="3개월 + SN" value="0.962" color={C.green} sub="E+L+SN+F AUROC"/>
+      <StatBox label="3개월 개선폭" value="+0.009" color={C.amber} sub="E+L+F 대비 AUROC"/>
+      <StatBox label="3개월 AUPRC" value="+0.029" color={C.coral} sub="SN 추가 효과"/>
+    </div>
+
+    <Card style={{marginBottom:20,border:`1px solid ${C.blue}22`}}>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(260px,1fr))",gap:16,alignItems:"center"}}>
+        <div>
+          <div style={{fontSize:16,fontWeight:800,color:C.text,marginBottom:8}}>무엇이 추가됐나?</div>
+          <div style={{fontSize:13,color:C.textDim,lineHeight:1.8}}>
+            <Term k="E" /> + <Term k="L" /> + <Term k="SN" /> + <Term k="F" /> 네 가지 특징 그룹을 비교합니다. 사용 빈도뿐 아니라 이미 살아남은 유행어들과 의미적으로 가까운지도 함께 확인합니다.
+          </div>
+        </div>
+        <Insight color={C.blue}>
+          <b style={{color:C.blue}}>핵심 결론:</b> 빈도 없이 볼 때는 <b>L_no_length_SN</b>이 AUROC 0.767로 기존 E+L 0.725보다 좋았습니다. 빈도까지 포함하면 h1/h3에서 SN이 AUROC와 AUPRC를 소폭 개선했고, h6/h12에서는 빈도 정보가 이미 너무 강해 추가 효과가 거의 사라졌습니다.
+        </Insight>
+      </div>
+    </Card>
+
+    <STitle sub="빈도 없이 E/L/SN만 비교">1. 텍스트 + 의미 이웃만 봤을 때</STitle>
+    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(330px,1fr))",gap:14,marginBottom:24}}>
+      <ChartCard title="빈도 없는 조건의 성능" sub="E+L baseline과 SN 조합 비교">
+        <ResponsiveContainer width="100%" height={260}>
+          <BarChart data={snTextOnlyData}>
+            <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
+            <XAxis dataKey="name" tick={{fill:C.textDim,fontSize:10}} axisLine={{stroke:C.border}} tickLine={false}/>
+            <YAxis domain={[0.35,0.82]} tick={{fill:C.textMuted,fontSize:11}} axisLine={false} tickLine={false}/>
+            <Tooltip contentStyle={tt} formatter={v=>[fmt(v),""]}/>
+            <Bar dataKey="auroc" name="AUROC" barSize={24} radius={[4,4,0,0]} fill={C.purple}/>
+            <Bar dataKey="f1" name="F1" barSize={24} radius={[4,4,0,0]} fill={C.amber}/>
+            <Legend wrapperStyle={{fontSize:11}}/>
+          </BarChart>
+        </ResponsiveContainer>
+        <Insight color={C.purple}>원본 임베딩 E에 SN을 단순 추가한 E+L+SN은 중복 정보 때문에 AUROC가 낮아졌지만, 길이 의존 L을 줄이고 SN을 사용한 L_no_length_SN은 0.767로 가장 좋았습니다.</Insight>
+      </ChartCard>
+
+      <ChartCard title="특징 수 비교" sub="적은 특징으로 더 높은 성능이 가능한가">
+        <ResponsiveContainer width="100%" height={260}>
+          <BarChart data={snTextOnlyData} layout="vertical" margin={{left:110}}>
+            <XAxis type="number" tick={{fill:C.textMuted,fontSize:11}} axisLine={{stroke:C.border}} tickLine={false}/>
+            <YAxis type="category" dataKey="name" width={110} tick={{fill:C.textDim,fontSize:11}} axisLine={false} tickLine={false}/>
+            <Tooltip contentStyle={tt}/>
+            <Bar dataKey="features" name="전체 특징 수" barSize={18} radius={[0,5,5,0]} fill={C.blue}/>
+          </BarChart>
+        </ResponsiveContainer>
+        <div style={{fontSize:12,color:C.textDim,lineHeight:1.8}}>L_no_length_SN은 79개 특징만 사용합니다. E+L의 449개보다 훨씬 작지만 AUROC는 더 높아, SN이 해석 가능한 압축 신호로 기능할 가능성을 보여줍니다.</div>
+      </ChartCard>
+    </div>
+
+    <STitle sub="E+L+F baseline에 SN을 추가했을 때 horizon별 변화">2. Horizon별 완전 비교</STitle>
+    <Card style={{marginBottom:14}}>
+      <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:14,alignItems:"center"}}>
+        <span style={{fontSize:12,color:C.textMuted,marginRight:2}}>지표 선택:</span>
+        {["auroc","auprc","f1","bal","precision","recall"].map(m=><Pill key={m} active={metric===m} color={C.blue} onClick={()=>setMetric(m)}>{metricNames[m]}</Pill>)}
+      </div>
+      <ResponsiveContainer width="100%" height={330}>
+        <LineChart data={snHorizonData}>
+          <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
+          <XAxis dataKey="name" tick={{fill:C.textDim,fontSize:11}} axisLine={{stroke:C.border}} tickLine={false}/>
+          <YAxis domain={[0.3,1.03]} tick={{fill:C.textMuted,fontSize:11}} axisLine={false} tickLine={false}/>
+          <Tooltip contentStyle={tt} formatter={(v,n)=>[fmt(v),n]}/>
+          <Line type="monotone" dataKey={`E_L_${metric}`} name="E+L" stroke={C.textMuted} strokeWidth={2} dot={{r:4}}/>
+          <Line type="monotone" dataKey={`E_L_F_${metric}`} name="E+L+F" stroke={C.coral} strokeWidth={2.5} dot={{r:5}}/>
+          <Line type="monotone" dataKey={`E_L_SN_F_${metric}`} name="E+L+SN+F" stroke={C.green} strokeWidth={3} dot={{r:6}}/>
+          <Line type="monotone" dataKey={`L_no_length_SN_F_${metric}`} name="L(no length)+SN+F" stroke={C.purple} strokeWidth={2} strokeDasharray="5 5" dot={{r:4}}/>
+          <Legend wrapperStyle={{fontSize:11}}/>
+        </LineChart>
+      </ResponsiveContainer>
+      <Insight color={C.green} style={{marginTop:12}}>3개월 지점에서 E+L+SN+F가 AUROC 0.962, AUPRC 0.916으로 기존 E+L+F보다 가장 분명하게 좋아졌습니다. 6개월 이후에는 F가 너무 강해져 SN의 추가 설명 여지가 작아집니다.</Insight>
+    </Card>
+
+    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(320px,1fr))",gap:14,marginBottom:24}}>
+      <ChartCard title="SN 추가 효과: AUROC / AUPRC delta" sub="E+L+F → E+L+SN+F">
+        <ResponsiveContainer width="100%" height={260}>
+          <BarChart data={snDeltaData}>
+            <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
+            <XAxis dataKey="name" tick={{fill:C.textDim,fontSize:11}} axisLine={{stroke:C.border}} tickLine={false}/>
+            <YAxis tick={{fill:C.textMuted,fontSize:11}} axisLine={false} tickLine={false}/>
+            <Tooltip contentStyle={tt} formatter={v=>[v>=0?`+${v.toFixed(4)}`:v.toFixed(4),""]}/>
+            <Bar dataKey="delta_auroc" name="Δ AUROC" fill={C.green} barSize={24} radius={[4,4,0,0]}/>
+            <Bar dataKey="delta_auprc" name="Δ AUPRC" fill={C.amber} barSize={24} radius={[4,4,0,0]}/>
+            <Legend wrapperStyle={{fontSize:11}}/>
+          </BarChart>
+        </ResponsiveContainer>
+        <Insight color={C.amber}>가장 큰 개선은 +3개월입니다. AUROC +0.0094, AUPRC +0.0285로 조기 예측 상황에서 SN이 의미 있는 보완 신호를 제공합니다.</Insight>
+      </ChartCard>
+
+      <ChartCard title="L(no length)+SN+F의 해석" sub="임베딩 직접 사용 없이 의미 이웃 + 빈도 중심">
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+          <thead><tr>{["기간","AUROC","F1","Precision","Recall"].map(h=><th key={h} style={{padding:"8px",textAlign:"left",borderBottom:`2px solid ${C.border}`,color:C.textDim}}>{h}</th>)}</tr></thead>
+          <tbody>{snHorizonData.map(r=><tr key={r.name} style={{borderBottom:`1px solid ${C.border}`}}>
+            <td style={{padding:"8px",fontWeight:700,color:C.text}}>{r.name}</td>
+            <td style={{padding:"8px",fontFamily:mono,color:C.purple}}>{r.L_no_length_SN_F_auroc.toFixed(3)}</td>
+            <td style={{padding:"8px",fontFamily:mono}}>{r.L_no_length_SN_F_f1.toFixed(3)}</td>
+            <td style={{padding:"8px",fontFamily:mono,color:r.horizon===3?C.green:C.textMid}}>{r.L_no_length_SN_F_precision.toFixed(3)}</td>
+            <td style={{padding:"8px",fontFamily:mono}}>{r.L_no_length_SN_F_recall.toFixed(3)}</td>
+          </tr>)}</tbody>
+        </table>
+        <Insight color={C.purple} style={{marginTop:12}}>h3에서는 최고 AUROC는 아니지만 Precision이 0.711로 E+L+F보다 높습니다. 즉 장기 생존이라고 예측한 경우의 신뢰도는 더 높아질 수 있습니다.</Insight>
+      </ChartCard>
+    </div>
+
+    <STitle sub="모델이 실제로 SN 특징을 썼는지 확인">3. 중요도와 주요 SN 특징</STitle>
+    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(330px,1fr))",gap:14,marginBottom:24}}>
+      <ChartCard title="Top feature 기준 그룹 중요도" sub="선택한 feature set의 horizon별 합산">
+        <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:12}}>
+          <Pill active={groupView==="E_L_SN_F"} color={C.green} onClick={()=>setGroupView("E_L_SN_F")}>E+L+SN+F</Pill>
+          <Pill active={groupView==="L_no_length_SN_F"} color={C.purple} onClick={()=>setGroupView("L_no_length_SN_F")}>L+SN+F</Pill>
+        </div>
+        <ResponsiveContainer width="100%" height={280}>
+          <BarChart data={groupRows}>
+            <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
+            <XAxis dataKey="name" tick={{fill:C.textDim,fontSize:11}} axisLine={{stroke:C.border}} tickLine={false}/>
+            <YAxis tick={{fill:C.textMuted,fontSize:11}} axisLine={false} tickLine={false}/>
+            <Tooltip contentStyle={tt}/>
+            {groupView==="E_L_SN_F"&&<Bar dataKey="E" name="E" stackId="a" fill={C.purple}/>} 
+            <Bar dataKey="L" name="L" stackId="a" fill={C.amber}/>
+            <Bar dataKey="SN" name="SN" stackId="a" fill={C.blue}/>
+            <Bar dataKey="F" name="F" stackId="a" fill={C.coral}/>
+            <Legend wrapperStyle={{fontSize:11}}/>
+          </BarChart>
+        </ResponsiveContainer>
+        <Insight color={C.blue}>L+SN+F처럼 임베딩을 직접 빼면 SN 특징의 비중이 훨씬 크게 보입니다. 이는 SN이 단순 장식이 아니라 실제 판단 신호로 쓰였다는 근거입니다.</Insight>
+      </ChartCard>
+
+      <ChartCard title="상위 특징 보기" sub="실험별 top feature importance">
+        <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:12}}>
+          {impViews.map(([id,label])=><Pill key={id} active={impView===id} color={C.blue} onClick={()=>setImpView(id)}>{label}</Pill>)}
+        </div>
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+          <thead><tr>{["#","특징","그룹","중요도"].map(h=><th key={h} style={{padding:"7px",textAlign:"left",borderBottom:`2px solid ${C.border}`,color:C.textDim}}>{h}</th>)}</tr></thead>
+          <tbody>{impRows.map(r=><tr key={`${r.horizon}-${r.feature_set}-${r.rank}`} style={{borderBottom:`1px solid ${C.border}`}}>
+            <td style={{padding:"7px",fontFamily:mono,color:C.textMuted}}>{r.rank}</td>
+            <td style={{padding:"7px",fontFamily:mono,color:r.group==="SN"?C.blue:C.textMid,fontWeight:r.group==="SN"?700:500}}>{r.feature}</td>
+            <td style={{padding:"7px"}}><Badge color={r.group==="SN"?C.blue:r.group==="F"?C.coral:r.group==="E"?C.purple:C.amber}>{r.group}</Badge></td>
+            <td style={{padding:"7px",fontFamily:mono,fontWeight:700}}>{r.importance.toFixed(0)}</td>
+          </tr>)}</tbody>
+        </table>
+      </ChartCard>
+    </div>
+
+    <STitle sub="SN feature는 label 정보를 쓰기 때문에 누수 방지가 중요합니다">4. 실험 설계 체크</STitle>
+    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(260px,1fr))",gap:14}}>
+      {[
+        ["1. 먼저 split", "각 horizon마다 train/validation/test를 먼저 나눴습니다. 전체 데이터로 SN 중심점을 만들면 test label을 미리 보는 문제가 생길 수 있기 때문입니다.", C.green],
+        ["2. train으로 SN 기준 생성", "생존 centroid, 미생존 centroid, KNN 생존 비율 같은 SN 기준은 train set만 사용해 만들었습니다.", C.blue],
+        ["3. valid/test에는 적용만", "validation/test 단어는 train에서 만든 기준점에 비추어 거리와 이웃 점수를 계산했습니다. 그래서 비교가 더 공정합니다.", C.purple],
+      ].map(([t,d,c])=><Card key={t} style={{borderTop:`3px solid ${c}`}}><div style={{fontSize:15,fontWeight:800,color:c,marginBottom:8}}>{t}</div><div style={{fontSize:13,color:C.textDim,lineHeight:1.75}}>{d}</div></Card>)}
+    </div>
+  </div>;
+}
+
+/* ═══ DATA & FEATURES ═══ */
+function Data(){
+  const yearData=Object.entries(YC).map(([y,c])=>({year:y,count:c}));
+  const labelDist=[{name:"단기 유행 / 사라짐",val:573,color:C.coral},{name:"장기 생존",val:246,color:C.green}];
+  const featGroups=[
+    {name:"E — 의미 벡터",count:384,desc:"유행어의 '뜻'을 컴퓨터가 이해하도록 384개의 숫자로 바꾼 값. 뜻이 비슷하면 숫자도 비슷해집니다.",color:C.purple,
+      details:["의미 기반 수치 표현","비슷한 의미끼리 가까워짐","텍스트 기반 자동 생성"]},
+    {name:"L — 언어 특징",count:65,desc:"글자 수·한글 비율·발음 리듬·형태소 등 단어의 겉모습에서 뽑은 65가지 특징.",color:C.amber,
+      details:["문자/표기: 28개 (글자수, 한글비율, 초성 등)","형태소: 17개 (명사·동사·형용사 비율 등)","표현유형: 10개 (단어형, 밈패턴 등)","발음/리듬: 10개 (음절수, 반복점수 등)"]},
+    {name:"SN — 의미 이웃",count:43,desc:"임베딩 공간에서 생존 유행어 중심·이웃 생존 비율·최근접 생존/미생존 유사도 등을 계산한 의미 기반 특징입니다.",color:C.blue,
+      details:["생존/미생존 centroid 유사도","KNN 생존 비율과 가중 생존 비율","최근접 생존·미생존 유행어 거리","주변 밀집도와 novelty score"]},
+    {name:"F — 사용 빈도",count:"38개씩",desc:"트위터에서 실제로 얼마나 자주 쓰였는지의 통계. 관찰 기간(1·3·6·12개월)별로 따로 계산합니다.",color:C.coral,
+      details:["기본통계: 11개 (합계, 평균, 최대, 활성월수 등)","추세: 8개 (증가/감소 기울기 등)","피크: 8개 (최고점, 이후 감소율 등)","생존성: 6개 (잔류율, 재활성화 등)","분포: 5개 (불균등 정도 등)"]},
+  ];
+
+  return<div style={{padding:"32px 24px 80px",maxWidth:1100,margin:"0 auto"}}>
+    <STitle sub="819개 유행어 데이터셋과 4가지 특징 그룹">데이터 & 특징 설계</STitle>
+
+    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:10,marginBottom:20}}>
+      <StatBox label="원본 샘플" value="965" unit="개" sub="정리 전"/>
+      <StatBox label="유효 샘플" value="819" unit="개" color={C.amber}/>
+      <StatBox label="장기 생존" value="246" unit="개" color={C.green} sub="30%"/>
+      <StatBox label="단기 유행" value="573" unit="개" color={C.coral} sub="70%"/>
+      <StatBox label="비율" value="1:3" color={C.red} sub="생존:미생존"/>
+      <StatBox label="수집 기간" value="2018–26" color={C.purple}/>
+      <StatBox label="SN 의미 이웃" value="43" unit="개" color={C.blue} />
+    </div>
+
+    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(320px,1fr))",gap:14,marginBottom:20}}>
+      <ChartCard title="레이블 분포">
+        <ResponsiveContainer width="100%" height={200}>
+          <PieChart><Pie data={labelDist} cx="50%" cy="50%" outerRadius={75} innerRadius={35} dataKey="val" nameKey="name" stroke="#fff" strokeWidth={2}>
+            {labelDist.map((d,i)=><Cell key={i} fill={d.color}/>)}
+          </Pie><Tooltip contentStyle={tt}/><Legend wrapperStyle={{fontSize:11}}/></PieChart>
+        </ResponsiveContainer>
+        
+      </ChartCard>
+
+      <ChartCard title="연도별 유행어 분포">
+        <ResponsiveContainer width="100%" height={200}>
+          <BarChart data={yearData}>
+            <XAxis dataKey="year" tick={{fill:C.textDim,fontSize:11}} axisLine={{stroke:C.border}} tickLine={false}/>
+            <YAxis tick={{fill:C.textMuted,fontSize:11}} axisLine={false} tickLine={false}/>
+            <Tooltip contentStyle={tt}/>
+            <Bar dataKey="count" radius={[4,4,0,0]} barSize={24}>
+              {yearData.map((_,i)=><Cell key={i} fill={i>=7?C.green:C.amber}/>)}
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      </ChartCard>
+    </div>
+
+    {/* Feature Groups */}
+    <STitle sub="의미(E) + 언어 특징(L) + 의미 이웃(SN) + 사용 빈도(F) 4개 그룹">특징 설계</STitle>
+    <div style={{display:"grid",gap:14}}>
+      {featGroups.map(g=><Card key={g.name} style={{borderLeft:`4px solid ${g.color}`}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:10}}>
+          <div>
+            <div style={{color:g.color,fontSize:16,fontWeight:700}}>{g.name} <span style={{fontFamily:mono,fontSize:13}}>({g.count}개)</span></div>
+            <div style={{color:C.textDim,fontSize:13,marginTop:4,maxWidth:600}}>{g.desc}</div>
+          </div>
+        </div>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:12}}>
+          {g.details.map(d=><span key={d} style={{padding:"5px 10px",borderRadius:6,background:C.bg,border:`1px solid ${C.border}`,fontSize:11,color:C.textDim}}>{d}</span>)}
+        </div>
+      </Card>)}
+    </div>
+
+    <Card style={{marginTop:20}}>
+      <div style={{color:C.text,fontSize:14,fontWeight:700,marginBottom:10}}>레이블 기준</div>
+      <div style={{fontSize:13,color:C.textDim,lineHeight:1.8}}>
+        label=1 (장기 생존)의 기준: 최초 등장으로부터 <b style={{color:C.text}}>7~12개월 중</b> 등장 빈도수가 <b style={{color:C.text}}>300 이상</b>인 월이 <b style={{color:C.text}}>최소 3개 이상</b>일 경우.
+        즉, 유행어가 등장 후 반년 이상 지나서도 여전히 활발하게 사용되고 있으면 "장기 생존"으로 판단합니다.
+        빈도수는 트위터에서 동일 조건으로 크롤링한 상대적 수치이며, 절대적 등장 횟수와는 다릅니다.
+      </div>
+    </Card>
+  </div>;
+}
+
+/* ═══ SEMANTIC SURVIVAL MAP (의미 지도) ═══ */
+const RAW={"d":[["힙합보단 사랑 사랑보단 돈",68,79,0,0.011,0.6,0.45,0.439,0.695,2026,[87,227,324,526,144]],["척추 척척추",74,60,0,0.028,0.4,0.553,0.526,0.712,2026,[666,504,141,610,293]],["운동 많이 된다",48,46,1,0.025,0.4,0.718,0.693,0.874,2026,[675,777,743,462,268]],["고작 이런 00에 볼게 뭐가 있다고 쨍그랑",23,50,0,0.009,0.0,0.766,0.757,0.967,2026,[606,77,631,630,482]],["윤정아 윤정아 왜요 쌤 왜요 쌤",30,52,1,0.016,0.0,0.773,0.757,0.971,2026,[568,77,570,394,426]],["But why?",44,83,0,0.027,0.0,0.274,0.247,0.508,2026,[493,213,564,671,786]],["완전히 멘탈이 나가버렸습니다",18,50,0,0.006,0.6,0.739,0.733,0.974,2026,[133,26,289,258,582]],["어디야 넌 어디야 집이야 난 택시야",36,57,0,0.01,0.0,0.67,0.66,0.847,2026,[573,482,3,77,606]],["그대 춤을 추는 나무 같아요",20,30,0,0.006,0.2,0.749,0.743,0.977,2026,[43,527,240,363,371]],["언발란스",64,40,1,0.042,0.2,0.818,0.775,0.969,2026,[66,456,654,689,145]],["쌰갈",68,30,1,0.046,0.6,0.789,0.742,0.952,2026,[689,142,29,421,9]],["원숭이 펀치",54,47,0,0.024,0.2,0.642,0.618,0.834,2026,[457,818,435,725,88]],["설명할 시간이 없어",28,77,1,0.01,0.2,0.322,0.312,0.492,2026,[611,368,197,738,533]],["빨리 타",52,76,1,0.027,0.2,0.632,0.606,0.838,2026,[800,201,764,530,307]],["간바레",78,27,0,0.048,0.6,0.642,0.594,0.886,2026,[29,343,632,489,64]],["붐샤카라카",66,18,0,0.026,0.0,0.671,0.645,0.886,2026,[127,491,513,556,25]],["카와이 다케쟈 다메데스까",11,37,0,0.005,0.0,0.73,0.725,0.977,2026,[76,363,402,443,452]],["귀엽기만 하면 안 되나요",35,65,0,0.012,0.2,0.646,0.634,0.844,2026,[77,446,669,136,394]],["00를 변기에 넣고서 내려",18,56,1,0.012,0.2,0.702,0.69,0.91,2026,[39,559,3,462,482]],["늑구",71,49,1,0.042,0.2,0.552,0.51,0.726,2026,[432,195,659,355,619]],["탱장연",50,36,0,0.03,0.6,0.797,0.767,0.969,2026,[282,735,128,636,309]],["모시모시 키코에떼루?",52,17,0,0.008,0.0,0.586,0.578,0.791,2026,[513,476,556,305,673]],["얼마나 00하고 싶었던 건지 감도 안 옴",15,61,0,0.003,0.2,0.729,0.726,0.965,2026,[477,660,304,115,773]],["영크크",73,33,1,0.052,0.2,0.778,0.726,0.94,2026,[284,275,809,216,688]],["늙크크",59,36,1,0.043,0.4,0.8,0.757,0.975,2026,[651,66,726,656,183]],["할렐야루",70,26,0,0.04,0.2,0.774,0.734,0.946,2026,[142,556,284,731,689]],["오늘 스트레스 많이 받을거야",17,42,1,0.011,0.4,0.766,0.755,0.985,2026,[371,271,172,133,477]],["대한민국 유행 진짜 훅훅 바뀌는 듯, 두쫀쿠 유행 끝나",18,51,0,-0.002,0.2,0.612,0.614,0.817,2026,[61,3,559,577,468]],["흐에에!",55,93,0,0.042,0.4,0.693,0.652,0.915,2026,[35,569,703,162,204]],["샤갈",76,28,1,0.052,0.6,0.744,0.691,0.931,2026,[10,701,23,809,329]],["낋여왔어요",42,59,1,0.026,0.6,0.787,0.762,0.984,2026,[30,736,708,520,341]],["낉여왔어요",42,60,1,0.026,0.6,0.787,0.762,0.984,2026,[30,736,708,520,341]],["여러분 저 됐어요, 00 됐어요!",35,86,1,0.021,0.0,0.67,0.65,0.874,2026,[414,774,569,544,542]],["뭔가 행복하지 않았지?",46,84,0,0.007,0.2,0.307,0.299,0.529,2026,[664,164,564,213,671]],["조림인간",85,68,1,0.049,0.4,0.685,0.636,0.889,2026,[683,263,473,441,286]],["을!",56,93,1,0.042,0.0,0.722,0.679,0.937,2026,[28,302,419,542,569]],["앙",58,80,1,0.049,0.4,0.733,0.684,0.938,2026,[759,204,237,387,44]],["오만가지 소스, 끝!",60,82,0,0.03,0.0,0.668,0.639,0.841,2026,[774,283,530,307,75]],["빅변내",64,47,1,0.041,0.4,0.664,0.623,0.796,2026,[415,688,777,145,764]],["00을(를) 변기에 넣고서 내려",20,56,1,0.014,0.4,0.658,0.644,0.865,2026,[18,559,652,357,217]],["인생은 웍 웍 웍 웍 질",90,67,1,0.021,0.0,0.482,0.461,0.691,2026,[547,497,494,286,170]],["누가 너를 멋없다 말했는데 그게 너의 맘을 괴롭힐 때면",27,72,0,-0.013,0.0,0.387,0.401,0.656,2026,[348,176,84,72,93]],["동 훈 이 일 걸",29,30,1,0.014,0.4,0.777,0.763,0.985,2026,[334,134,735,527,737]],["그대 춤을 추는 나무 같아요",21,30,0,0.006,0.2,0.749,0.743,0.977,2026,[43,527,240,363,371]],["꺼드럭",58,83,1,0.036,0.2,0.705,0.669,0.917,2026,[387,36,530,759,786]],["꼭지 켜줄게",28,39,0,0.012,0.2,0.77,0.758,0.983,2026,[334,597,737,271,172]],["나는 감정없는 싸이코라그런가 이런거보면 미동도안함. 오",50,81,0,0.002,0.4,0.385,0.383,0.6,2026,[59,664,117,464,617]],["쉬었음 청년",46,66,1,0.03,0.6,0.684,0.653,0.826,2026,[77,412,713,783,744]],["아자스",71,37,1,0.053,0.4,0.755,0.702,0.926,2026,[142,653,284,329,216]],["여기까지가 템플릿임",45,33,0,0.02,0.2,0.764,0.745,0.943,2026,[293,730,338,96,316]],["00하는 주파수",7,77,0,0.028,0.6,0.734,0.706,0.959,2026,[575,495,65,362,453]],["괜찮아 딩딩딩딩딩",48,64,1,0.031,0.8,0.755,0.724,0.921,2025,[51,544,223,298,376]],["Chill guy",60,81,1,0.041,0.6,0.493,0.452,0.698,2025,[44,642,387,422,36]],["죠리퐁에서 왜 죠리퐁 냄새가나지",28,47,0,0.01,0.0,0.688,0.678,0.879,2025,[3,594,337,217,333]],["햄부기햄북 햄북스딱스 함부르크햄부가우가 햄비기햄부거 햄",50,55,0,0.012,0.6,0.532,0.52,0.694,2025,[563,141,645,641,370]],["도파민",86,44,1,0.055,0.8,0.675,0.621,0.901,2025,[55,444,803,705,375]],["사람이 죽는다고",27,58,0,0.016,0.4,0.765,0.749,0.964,2025,[90,434,133,626,371]],["나니가스키",66,54,1,0.042,0.4,0.738,0.696,0.888,2025,[283,284,275,281,294]],["트랄랄레로 트랄랄라",9,31,0,0.019,0.2,0.684,0.664,0.899,2025,[97,449,550,754,100]],["와... 너 정말, **핵심을 찔렀어.**",48,78,0,0.007,0.2,0.596,0.588,0.799,2025,[75,86,606,237,44]],["누가 범인일까?",78,83,0,0.017,0.2,0.42,0.403,0.704,2025,[151,155,153,263,152]],["첩 교체비는 안 아깝고 칩 교체비용은 아깝냐",16,54,0,0.006,0.0,0.704,0.698,0.901,2025,[559,374,630,660,672]],["회장 마누라 교체 비용으로 2조를 쓰면서",9,49,0,0.005,0.4,0.651,0.646,0.877,2025,[540,477,133,623,443]],["테크놀로지아",53,39,1,0.024,0.2,0.657,0.633,0.824,2025,[702,20,735,699,445]],["밤티",76,25,1,0.05,0.8,0.674,0.624,0.888,2025,[343,705,687,29,329]],["00미새",9,82,1,0.045,0.4,0.78,0.736,0.961,2025,[453,525,575,495,50]],["아미새",63,35,0,0.045,0.8,0.811,0.766,0.973,2025,[24,145,653,651,9]],["이건 00 레슨 00하기",7,66,1,0.019,0.4,0.759,0.74,0.966,2025,[300,496,540,362,574]],["쉐이칸샹 쉐이칸샹",36,26,0,0.02,0.0,0.77,0.751,0.961,2025,[796,338,609,775,730]],["이거 AI 광고야.",81,55,0,0.02,0.2,0.28,0.26,0.521,2025,[301,325,721,612,762]],["잔말말고 에어컨 파워냉방으로 틀어",29,28,0,0.004,0.2,0.663,0.659,0.882,2025,[645,385,699,185,333]],["내가 그걸 모를까",21,65,0,0.014,0.4,0.77,0.756,0.962,2025,[125,252,773,618,374]],["왜 안봐 왜 안봐 너 내 카톡 왜 안봐",19,68,0,0.003,0.6,0.659,0.656,0.89,2025,[618,560,252,71,652]],["도티낳음",56,52,1,0.034,0.4,0.809,0.775,0.962,2025,[501,595,298,268,566]],["케케크롱",69,34,0,0.031,0.6,0.55,0.519,0.72,2025,[23,717,340,734,749]],["이리와서.. 오목 한 판.. 두자꾸나..",56,76,0,0.017,0.0,0.658,0.64,0.845,2025,[283,307,544,464,800]],["사실 너도 똑같더라고",14,45,0,0.004,0.0,0.741,0.737,0.986,2025,[363,672,601,332,402]],["멋있어 멋있어 이찬오빠 멋있어",31,56,0,0.014,0.2,0.771,0.757,0.975,2025,[606,240,192,230,631]],["영포티",89,46,1,0.052,0.2,0.731,0.679,0.931,2025,[329,342,473,375,340]],["개웃겨서 원식이 착상함",16,33,0,0.006,0.0,0.748,0.742,0.983,2025,[172,271,244,527,363]],["전부 다 가르쳐줄게",19,41,0,0.007,0.2,0.749,0.742,0.978,2025,[94,697,271,172,42]],["내 골반이 멈추지 않는 탓일까? ㅜ.ㅜ",55,64,1,0.013,0.2,0.263,0.251,0.44,2025,[1,119,176,330,2]],["골반통신",83,57,1,0.036,0.2,0.387,0.351,0.566,2025,[361,1,628,610,804]],["평범한 땅볼 타구 같은데..",31,28,0,0.002,0.0,0.586,0.585,0.787,2025,[486,699,45,609,645]],["사실은 나도 학교에 가 본적 없어",19,68,0,-0.005,0.2,0.565,0.57,0.829,2025,[93,71,219,618,374]],["매끈매끈하다 매끈매끈한",64,67,1,0.036,0.4,0.769,0.733,0.922,2025,[283,530,294,108,562]],["오우~ 즉시 반말?",34,59,0,0.01,0.0,0.736,0.726,0.957,2025,[426,606,235,481,154]],["힙합보단 사랑, 사랑보단 돈",68,79,0,0.013,0.4,0.449,0.435,0.693,2025,[0,227,662,324,144]],["짜잇호~",44,48,0,0.029,0.4,0.792,0.763,0.983,2025,[520,726,708,89,793]],["호잇짜~",40,30,0,0.022,0.4,0.773,0.751,0.983,2025,[793,235,428,267,737]],["그럼 죽어",27,58,1,0.018,0.2,0.762,0.744,0.972,2025,[434,56,626,337,624]],["기적 같은 하루가 널 기다리고 있어.",36,84,0,0.012,0.0,0.372,0.361,0.56,2025,[494,345,497,621,414]],["난 네 심장보다도 가까운 곳에서 널 지켜볼테니까.",42,74,0,-0.005,0.4,0.272,0.278,0.475,2025,[596,644,328,756,117]],["사실 나도 00에 가본 적이 없어",18,65,0,-0.001,0.0,0.656,0.657,0.905,2025,[22,84,391,71,374]],["전부, 가르쳐 줄게",23,38,0,0.006,0.0,0.739,0.732,0.974,2025,[80,568,737,710,130]],["나는 이 게임을 해봤어요",52,56,0,0.01,0.0,0.519,0.508,0.708,2025,[506,210,486,596,774]],["둥글게 둥글게",43,37,0,0.023,0.2,0.783,0.76,0.966,2025,[309,600,730,726,796]],["트랄랄레로 트랄랄라",8,30,0,0.019,0.2,0.684,0.664,0.899,2025,[97,449,550,754,100]],["봄바르디로 크로코딜로",11,32,0,0.004,0.0,0.685,0.681,0.93,2025,[443,100,769,488,754]],["퉁 퉁 퉁 퉁 퉁 퉁 퉁 퉁 퉁 사후르",52,42,0,0.031,0.4,0.743,0.712,0.908,2025,[96,535,68,287,651]],["브르르 브르르 파타핌",13,28,0,0.015,0.2,0.732,0.717,0.947,2025,[68,443,775,769,364]],["호텔경제학",73,75,0,0.019,0.4,0.188,0.169,0.389,2025,[698,324,700,427,0]],["테토남",75,23,1,0.03,0.2,0.511,0.481,0.755,2025,[632,127,687,491,695]],["테토녀",82,41,1,0.037,0.6,0.508,0.472,0.668,2025,[375,803,770,105,406]],["에겐남",49,20,1,0.024,0.8,0.786,0.762,0.983,2025,[256,267,521,767,282]],["에겐녀",74,41,1,0.044,0.6,0.75,0.705,0.926,2025,[751,220,791,281,73]],["폭싹 00수다",6,51,1,0.016,0.0,0.761,0.745,0.974,2025,[574,623,697,540,496]],["학씨!",62,89,0,0.045,0.6,0.664,0.619,0.872,2025,[441,302,356,35,28]],["부들부들",67,61,0,0.039,0.4,0.789,0.75,0.947,2025,[118,534,725,113,688]],["오만가지 소스",63,51,0,0.04,0.8,0.781,0.741,0.923,2025,[744,139,294,321,688]],["Chill하군",42,43,1,0.029,0.4,0.795,0.767,0.974,2025,[337,624,88,726,309]],["첩앤칩스",64,55,0,0.025,0.4,0.63,0.605,0.801,2025,[112,641,702,118,61]],["유첩무칩",74,58,0,0.031,0.6,0.617,0.586,0.823,2025,[111,817,150,551,666]],["일첩이조",70,47,0,0.04,0.4,0.805,0.765,0.962,2025,[242,145,688,293,636]],["가나디",45,45,1,0.028,0.8,0.807,0.779,0.971,2025,[268,223,625,298,624]],["그건 절대 안 되는 일이얌",23,58,0,0.012,0.0,0.764,0.752,0.985,2025,[660,773,710,271,172]],["궁전으로 갈 수도 있어",32,41,0,0.008,0.2,0.712,0.704,0.906,2025,[276,584,439,781,730]],["귀하게 자란 내가 이런 걸 봐도 될까?",40,78,0,0.011,0.2,0.438,0.427,0.63,2025,[17,814,213,564,713]],["허거덩거덩스",66,60,0,0.039,0.4,0.772,0.733,0.939,2025,[108,725,150,113,688]],["난가병",58,77,0,0.039,0.4,0.547,0.508,0.755,2025,[36,786,387,330,642]],["머시써 머시써 이찬 오빠 멋있어",16,41,0,0.003,0.2,0.73,0.728,0.98,2025,[130,240,244,567,402]],["보법",80,52,1,0.055,0.4,0.794,0.739,0.964,2025,[562,375,216,724,234]],["사람아니야",40,49,0,0.023,0.2,0.78,0.757,0.961,2025,[624,192,230,354,499]],["아 진짜요",36,52,0,0.021,0.2,0.786,0.765,0.984,2025,[624,626,568,235,566]],["야르",80,37,1,0.059,0.8,0.708,0.649,0.905,2025,[701,751,444,29,643]],["어른들은 몰라요",22,60,0,0.012,0.2,0.763,0.751,0.971,2025,[437,773,597,182,252]],["오늘도 평화로운 린도 린도 린도",39,40,0,0.012,0.2,0.641,0.629,0.794,2025,[783,582,602,298,574]],["캄대남",63,18,0,0.034,0.6,0.765,0.731,0.946,2025,[550,206,695,10,689]],["폭주기니",47,42,1,0.026,0.4,0.806,0.78,0.975,2025,[354,337,268,624,217]],["한국의 오타니",42,13,0,0.011,0.0,0.615,0.603,0.837,2025,[305,761,311,278,127]],["할래말래할래말래 애매하긴해",22,42,0,0.007,0.2,0.75,0.743,0.986,2025,[271,172,737,240,568]],["섹시푸드",65,72,1,0.04,0.2,0.52,0.48,0.724,2025,[260,283,475,85,161]],["힙레",75,42,0,0.055,0.4,0.771,0.716,0.939,2025,[284,619,653,216,121]],["00 선수 진짜 죽습니다",13,54,1,0.015,0.4,0.778,0.762,0.984,2025,[496,540,26,672,134]],["00어게인",25,26,1,0.017,0.6,0.774,0.757,0.984,2025,[42,388,428,514,527]],["어쩔수가없다",21,67,0,0.01,0.2,0.758,0.748,0.974,2025,[660,115,773,182,252]],["부럽지가 않어",32,64,0,0.026,0.2,0.785,0.759,0.964,2022,[626,624,566,115,337]],["해병문학",88,32,0,0.029,0.2,0.462,0.434,0.74,2022,[467,226,661,166,524]],["소울리스좌",84,38,0,0.043,0.2,0.742,0.699,0.933,2022,[447,329,25,203,375]],["눗눗",62,39,0,0.041,0.2,0.815,0.773,0.97,2022,[651,731,293,66,145]],["재즈를 뭐라고 생각하세요?",54,64,0,0.009,0.4,0.267,0.258,0.41,2022,[227,392,144,506,387]],["오붕가",76,53,0,0.047,0.4,0.751,0.705,0.924,2022,[666,216,587,562,284]],["알빠노",66,26,1,0.042,0.4,0.792,0.75,0.955,2022,[689,66,10,9,212]],["중요한 것은 꺾이지 않는 마음",62,65,0,0.019,0.4,0.595,0.576,0.732,2022,[228,283,181,738,724]],["갱갱갱",64,64,1,0.033,0.4,0.75,0.718,0.901,2022,[392,108,118,725,654]],["띠용흥민",62,41,0,0.043,0.4,0.811,0.768,0.975,2022,[178,66,651,24,636]],["알빠임?",47,80,0,0.044,0.6,0.724,0.68,0.887,2022,[261,154,759,654,225]],["오빠 오빠 차 있어?",44,81,0,0.009,0.2,0.393,0.383,0.647,2022,[7,175,32,541,161]],["근데 어쩔건데?",37,76,0,0.01,0.0,0.701,0.691,0.916,2022,[481,564,213,154,250]],["폼 미쳤다",53,63,1,0.032,0.4,0.769,0.737,0.95,2022,[617,169,299,725,337]],["누칼협",78,62,1,0.049,0.8,0.763,0.714,0.948,2022,[666,562,801,661,216]],["누가 칼들고 협박함?",78,81,1,0.014,0.0,0.428,0.415,0.775,2022,[152,153,60,557,561]],["천천히 해, 누가 칼들고 협박함?",74,84,0,0.015,0.4,0.55,0.535,0.797,2022,[151,153,75,307,44]],["누가 게임하라고 칼들고 협박했냐?",77,81,0,0.002,0.2,0.451,0.449,0.73,2022,[151,152,60,95,506]],["까불인데요?",39,63,0,0.024,0.2,0.792,0.768,0.977,2022,[481,520,437,708,192]],["누가 00야?",14,85,0,0.028,0.4,0.54,0.512,0.756,2022,[32,455,525,458,523]],["맑은 눈의 광인",67,94,0,0.03,0.6,0.483,0.453,0.845,2022,[580,352,579,562,260]],["카메라 꺼!",59,89,0,0.014,0.2,0.426,0.412,0.601,2022,[236,209,774,44,37]],["눈 뜨고 코 베이징",45,13,0,0.007,0.2,0.643,0.636,0.865,2022,[305,159,550,265,233]],["베이징 탈모",48,14,0,0.013,0.2,0.476,0.463,0.751,2022,[158,423,265,550,305]],["블루투스 터치",73,51,0,0.03,0.0,0.559,0.53,0.703,2022,[790,113,587,390,732]],["식사는 잡쉈어?",48,84,0,0.021,0.4,0.489,0.468,0.697,2022,[131,596,709,283,307]],["할렐루야!",54,93,0,0.036,0.2,0.644,0.608,0.869,2022,[35,28,569,703,248]],["마귀가 들렸네, 마귀가 들렸어!",56,82,0,0.021,0.4,0.559,0.538,0.72,2022,[387,44,307,164,392]],["너 사탄 들렸어?",48,85,0,0.007,0.0,0.351,0.344,0.625,2022,[163,541,345,307,596]],["와쿠와쿠",66,17,0,0.03,0.4,0.552,0.521,0.773,2022,[15,403,716,64,695]],["고래가 알을 낳는 문제",60,51,0,0.02,0.4,0.611,0.591,0.747,2022,[818,725,118,463,73]],["그렇다는 증거 있습니까?",46,84,0,0.007,0.2,0.199,0.192,0.438,2022,[229,408,671,493,742]],["비!상!! 비상!! 비상!!",10,37,0,-0.006,0.0,0.641,0.647,0.927,2022,[488,16,443,232,363]],["추멘 폼 미쳤다",52,57,0,0.025,0.6,0.773,0.748,0.943,2022,[149,617,725,128,492]],["멸공좌",92,65,0,0.046,0.0,0.672,0.625,0.909,2022,[603,473,417,286,342]],["따흐흑",44,44,1,0.031,0.4,0.793,0.762,0.981,2022,[726,624,626,88,520]],["악으로 깡으로 버텨라",20,37,0,0.008,0.0,0.762,0.753,0.991,2022,[271,737,371,597,244]],["00할 결심",15,86,1,0.04,0.4,0.672,0.632,0.837,2022,[453,455,553,519,744]],["갸루피스",63,34,0,0.045,0.6,0.79,0.745,0.955,2022,[731,651,24,9,139]],["야, 형이야.",51,87,0,0.035,0.2,0.588,0.553,0.817,2022,[248,713,544,627,703]],["난 아무렇지 않지 않아",33,70,0,0.015,0.2,0.668,0.654,0.884,2022,[446,274,516,193,136]],["벤버지",46,30,0,0.03,0.6,0.776,0.746,0.951,2022,[316,793,520,338,456]],["손흥민 띠용",62,43,0,0.043,0.4,0.802,0.758,0.964,2022,[145,66,651,139,294]],["한반두",74,63,0,0.044,0.4,0.62,0.576,0.827,2022,[430,184,607,744,562]],["ㄱㅇㅇ",52,28,0,0.039,0.8,0.75,0.711,0.978,2022,[676,287,183,246,24]],["꽈추형",60,55,0,0.037,0.2,0.791,0.753,0.939,2022,[534,501,595,136,145]],["너 개못하잖아",24,65,0,0.008,0.2,0.751,0.743,0.98,2022,[252,773,394,115,660]],["농ㅋㅋ",51,29,0,0.032,0.6,0.781,0.749,0.978,2022,[287,656,726,180,316]],["두창",76,53,0,0.053,0.6,0.765,0.712,0.935,2022,[562,121,375,216,430]],["또 이러신다 밥이나 드세요",24,37,0,0.008,0.2,0.759,0.751,0.982,2022,[737,240,271,172,597]],["몇개고?",70,72,0,0.029,0.2,0.408,0.379,0.604,2022,[351,179,109,455,430]],["백룸",82,55,0,0.032,0.0,0.419,0.387,0.611,2022,[485,241,234,335,804]],["사이버 유격",69,40,0,0.022,0.2,0.352,0.331,0.621,2022,[358,612,505,301,733]],["안아줘요",32,44,1,0.02,0.0,0.783,0.764,0.98,2022,[597,192,230,631,737]],["어떻게 지평좌표계로 고정을 하셨죠?",30,44,0,0.01,0.0,0.748,0.738,0.933,2022,[45,559,217,597,354]],["고트",79,66,1,0.057,0.4,0.664,0.608,0.89,2022,[666,755,150,417,719]],["예쁘잖아",39,51,0,0.024,0.2,0.802,0.778,0.987,2022,[230,354,566,624,597]],["오히려 좋아",48,72,1,0.032,0.2,0.745,0.713,0.942,2022,[667,544,312,552,627]],["와캬퍄헉농ㅋㅋ",20,39,0,0.01,0.2,0.742,0.732,0.973,2022,[235,172,271,244,133]],["울프는 겜알못이다",24,63,0,0.013,0.2,0.71,0.696,0.89,2022,[463,71,618,125,394]],["이게 팀이야?",42,63,0,0.019,0.2,0.647,0.628,0.795,2022,[154,654,481,708,200]],["이제는 더 이상 물러날 곳이 없다",28,77,0,0.0,0.4,0.431,0.431,0.78,2022,[368,611,412,348,367]],["이지두댄스",35,6,0,0.028,0.2,0.651,0.622,0.944,2022,[811,784,290,532,215]],["주변도르",79,64,0,0.042,0.2,0.693,0.651,0.895,2022,[666,724,390,216,790]],["추앙해요",43,62,0,0.026,0.6,0.8,0.774,0.974,2022,[376,566,552,221,268]],["하지만 빨랐죠",39,55,0,0.016,0.6,0.693,0.677,0.862,2022,[468,743,462,13,675]],["화성 갈끄니까",35,44,0,0.001,0.0,0.448,0.447,0.663,2022,[202,116,691,781,357]],["황시",92,48,0,0.05,0.2,0.723,0.674,0.927,2022,[473,329,138,447,444]],["무야호",56,79,1,0.044,0.2,0.785,0.741,0.961,2021,[759,237,694,530,627]],["포브스 선정 00",13,86,1,0.025,0.2,0.417,0.392,0.601,2021,[173,455,523,458,155]],["스윗중남",54,21,1,0.032,1.0,0.803,0.771,0.963,2021,[537,104,256,114,267]],["롤린",64,48,0,0.045,0.4,0.793,0.749,0.947,2021,[9,145,732,654,501]],["시무라 아주머니",35,48,0,0.025,0.2,0.77,0.745,0.94,2021,[421,247,625,376,529]],["멈춰!",58,88,0,0.022,0.4,0.428,0.406,0.622,2021,[44,35,302,157,236]],["머니게임",56,54,0,0.029,0.6,0.709,0.68,0.857,2021,[791,506,73,702,223]],["나락송",59,67,0,0.042,0.4,0.811,0.769,0.969,2021,[654,530,292,501,595]],["아라아라",56,24,0,0.029,0.4,0.784,0.755,0.965,2021,[767,706,280,104,492]],["근데 이제 뭐함?",38,80,0,0.014,0.0,0.657,0.642,0.893,2021,[213,148,86,481,154]],["넥스트 레벨",81,56,0,0.035,0.4,0.604,0.569,0.784,2021,[605,433,666,504,390]],["제로투 댄스",34,7,0,0.014,0.2,0.639,0.625,0.92,2021,[784,811,198,532,395]],["한심좌",82,51,0,0.053,0.8,0.786,0.733,0.959,2021,[121,375,329,688,562]],["똥 밟았네",34,43,0,0.018,0.2,0.786,0.768,0.982,2021,[337,737,354,568,624]],["활벤져스",76,41,0,0.045,0.2,0.77,0.725,0.938,2021,[9,732,447,340,329]],["그런건 없다 게이야",23,64,0,0.011,0.2,0.75,0.739,0.969,2021,[773,182,252,115,660]],["성윤모",76,43,1,0.05,0.4,0.668,0.618,0.893,2021,[105,646,751,791,643]],["라고 할 뻔",41,58,1,0.021,0.2,0.789,0.768,0.971,2021,[566,200,624,626,123]],["설거지론",79,49,0,0.041,0.6,0.575,0.534,0.736,2021,[234,802,294,121,661]],["어쩔티비",46,48,1,0.027,0.8,0.812,0.785,0.968,2021,[114,625,268,298,376]],["정상수",85,58,1,0.046,0.4,0.442,0.395,0.701,2021,[407,214,251,605,425]],["몰?루",58,75,1,0.043,0.8,0.747,0.704,0.926,2021,[694,204,292,654,708]],["북방코끓리바다표범",85,32,0,0.015,0.2,0.597,0.582,0.776,2021,[729,661,409,396,118]],["어느새부터 힙합은 안 멋져",30,63,0,0.001,0.2,0.617,0.615,0.816,2021,[349,367,219,660,135]],["힘숨찐",60,67,1,0.039,0.4,0.797,0.758,0.951,2021,[530,211,534,764,725]],["사실이 아닙니다!",51,87,0,0.014,0.4,0.422,0.408,0.645,2021,[786,671,696,299,367]],["예쁘잖아",36,51,0,0.024,0.2,0.802,0.778,0.987,2021,[230,354,566,624,597]],["너도 오니가 되어라",18,53,1,0.007,0.2,0.742,0.735,0.962,2021,[707,323,402,76,601]],["코리아 화이팅!",16,34,0,-0.004,0.2,0.667,0.671,0.942,2021,[244,740,271,172,363]],["00이 웬말인가?",25,32,0,0.012,0.4,0.747,0.735,0.968,2021,[740,710,235,134,737]],["물소",82,51,0,0.06,0.8,0.751,0.691,0.955,2021,[705,121,375,469,216]],["가오가이",32,44,0,0.018,0.2,0.777,0.759,0.984,2021,[737,428,597,624,437]],["어, 나가",58,85,0,0.027,0.2,0.653,0.626,0.85,2021,[44,800,530,237,544]],["어, 나락",54,80,0,0.038,0.6,0.771,0.733,0.955,2021,[204,627,694,544,654]],["아니, 잘 몰라요",24,68,0,0.015,0.4,0.723,0.708,0.943,2021,[618,367,182,136,135]],["저희가 많이 보죠",34,44,0,0.017,0.2,0.746,0.729,0.93,2021,[730,566,631,240,230]],["그만큼 신나시는 거지",24,42,1,0.011,0.0,0.766,0.756,0.988,2021,[737,631,568,710,130]],["밀보드",78,57,0,0.044,0.8,0.711,0.667,0.896,2021,[666,234,551,242,121]],["역주행",76,58,1,0.045,0.6,0.785,0.739,0.952,2021,[113,801,688,121,216]],["빙빙 돌아가는 회전목마처럼",73,61,0,0.012,0.2,0.448,0.436,0.673,2021,[504,817,666,420,83]],["지금 제작진 표정 봐 미쳐",17,34,0,0.005,0.2,0.738,0.733,0.985,2021,[271,172,79,527,740]],["너어어어~",44,51,0,0.026,0.2,0.764,0.739,0.959,2021,[88,708,520,606,426]],["슉 슈슉",52,27,1,0.036,0.6,0.76,0.724,0.969,2021,[183,180,676,656,24]],["믓찌다 믓찌다 우리언니",29,46,0,0.016,0.0,0.732,0.716,0.931,2021,[208,529,394,421,787]],["Hey~",53,90,0,0.043,0.2,0.59,0.548,0.841,2021,[28,162,175,35,703]],["배신하면 죽는다",27,59,0,0.002,0.2,0.542,0.539,0.748,2021,[56,90,434,692,549]],["싫은데~?",33,64,0,0.012,0.0,0.728,0.716,0.953,2021,[481,182,437,154,235]],["명사수",88,53,1,0.059,0.4,0.736,0.676,0.942,2021,[375,473,121,234,417]],["반말 하지마라",20,66,1,0.01,0.2,0.754,0.744,0.977,2021,[182,618,773,394,115]],["보잡째",66,74,0,0.051,0.2,0.731,0.68,0.894,2021,[703,562,283,627,530]],["준비 됐나요? 자~ 그럼 부를게요",46,71,0,0.02,0.6,0.681,0.661,0.865,2021,[544,728,553,32,376]],["간바레 센빠이",32,23,0,0.013,0.4,0.753,0.74,0.975,2021,[737,428,787,267,740]],["근하하하",46,22,1,0.025,0.6,0.791,0.766,0.985,2021,[104,267,521,793,509]],["깻잎 논쟁",71,56,0,0.034,0.6,0.495,0.461,0.683,2021,[470,661,718,705,727]],["내가 없어져볼게",19,48,0,0.008,0.2,0.755,0.747,0.974,2021,[371,597,26,6,332]],["너는나를존중해야한다",28,59,0,0.012,0.2,0.707,0.695,0.91,2021,[586,549,487,631,707]],["대유쾌 마운틴",66,66,0,0.047,0.6,0.721,0.674,0.884,2021,[294,283,178,667,562]],["런",57,74,1,0.053,0.6,0.764,0.71,0.931,2021,[627,292,759,694,653]],["롱노즈",82,41,0,0.038,0.2,0.529,0.491,0.669,2021,[803,780,375,473,329]],["마기꾼",79,71,0,0.047,0.8,0.725,0.678,0.905,2021,[34,150,562,473,392]],["말씀 중에 죄송합니다",24,53,0,0.01,0.6,0.67,0.661,0.904,2021,[339,331,289,782,773]],["무야홍",51,19,0,0.031,0.4,0.702,0.671,0.909,2021,[509,550,656,377,689]],["무지성",89,67,1,0.049,0.2,0.62,0.571,0.856,2021,[792,417,170,806,350]],["문크 예거",41,27,1,0.023,0.6,0.796,0.773,0.987,2021,[492,354,793,624,256]],["드가자",42,50,1,0.026,0.6,0.812,0.786,0.982,2021,[354,743,376,566,624]],["00은 사람을 찢어",29,48,1,0.023,0.2,0.733,0.71,0.892,2021,[357,559,128,217,725]],["수상한 정도로 00한 00",5,54,0,0.015,0.2,0.75,0.735,0.971,2021,[574,540,106,496,623]],["악으로 깡으로 버텨라",20,36,0,0.008,0.0,0.762,0.753,0.991,2021,[172,737,371,597,244]],["에어맨이 쓰러지지 않아",20,59,0,0.005,0.0,0.718,0.713,0.922,2021,[135,660,45,6,527]],["이 아이가 배가 부르다는 느낌을 알까요?",40,77,0,-0.002,0.0,0.284,0.286,0.513,2021,[117,814,345,493,164]],["이대로 괜찮은가",36,67,0,0.018,0.4,0.741,0.723,0.947,2021,[516,446,508,707,376]],["코이츠",68,46,0,0.047,0.6,0.81,0.762,0.96,2021,[654,9,355,281,284]],["킹받네",35,39,1,0.02,0.2,0.779,0.759,0.961,2021,[624,737,522,597,354]],["킹받는다",52,44,1,0.028,0.6,0.709,0.681,0.864,2021,[276,298,447,799,223]],["한국인이 좋아하는 속도",40,14,0,0.002,0.0,0.532,0.529,0.828,2021,[311,129,27,349,201]],["화성 갈끄니까",35,42,0,0.001,0.0,0.448,0.447,0.663,2021,[202,116,691,781,357]],["아임뚜렛",55,26,0,0.033,0.6,0.801,0.768,0.973,2020,[767,706,104,492,282]],["그랜절",70,43,1,0.047,0.4,0.796,0.748,0.952,2020,[275,9,751,355,375]],["지이잉",48,28,1,0.029,0.8,0.8,0.77,0.986,2020,[793,521,316,309,267]],["호박고구마",61,71,0,0.041,0.4,0.795,0.755,0.952,2020,[530,85,211,544,292]],["할카스",72,39,0,0.047,0.2,0.798,0.751,0.951,2020,[275,23,174,216,25]],["종로로 갈까요",50,64,0,0.021,0.6,0.699,0.678,0.848,2020,[728,534,519,295,376]],["만희물",91,61,0,0.053,0.4,0.691,0.638,0.9,2020,[473,251,170,562,417]],["ㄷㄷㄷㅈ",50,28,1,0.03,0.4,0.767,0.736,0.977,2020,[183,180,676,726,316]],["나비보벳따우",43,34,1,0.028,0.2,0.795,0.767,0.955,2020,[492,354,267,796,338]],["미안하다 이거 보여주려고 어그로끌었다",15,44,1,-0.0,0.0,0.721,0.721,0.979,2020,[76,672,363,567,244]],["관짝춤",34,6,0,0.031,0.2,0.582,0.551,0.885,2020,[198,811,784,215,532]],["나는 개인이오",53,74,0,0.02,0.4,0.391,0.371,0.626,2020,[317,471,596,756,677]],["깡",59,70,1,0.047,0.4,0.803,0.756,0.973,2020,[654,694,759,530,211]],["펀쿨섹좌",57,38,0,0.03,0.2,0.805,0.775,0.967,2020,[651,139,725,492,20]],["엄준식",64,51,1,0.042,0.2,0.815,0.773,0.963,2020,[534,139,145,501,595]],["00은 사드세요 제발",13,61,1,0.02,0.8,0.78,0.76,0.959,2020,[630,376,300,381,268]],["불 좀 꺼줄래?",62,92,1,0.005,0.2,0.311,0.306,0.523,2020,[157,579,320,236,117]],["야 꿀벌",51,56,1,0.031,0.6,0.632,0.601,0.797,2020,[818,713,377,204,245]],["군침이 싹 도노",45,42,1,0.026,0.6,0.812,0.787,0.974,2020,[492,354,624,268,376]],["가짜사나이",45,55,1,0.023,0.6,0.772,0.749,0.932,2020,[606,617,149,122,624]],["00를 알려주겠다",7,67,1,0.017,0.4,0.755,0.737,0.976,2020,[496,362,381,623,540]],["뒷광고",81,55,1,0.026,0.2,0.455,0.429,0.71,2020,[325,745,505,241,551]],["테스형!",58,92,0,0.04,0.2,0.726,0.686,0.912,2020,[35,542,774,419,569]],["돌리랑 도트가 제일 좋아",38,48,0,0.018,0.2,0.732,0.714,0.899,2020,[669,192,230,499,77]],["사실을 오래전부터 당신 같은 00를 기다려 왔다우",12,43,0,0.0,0.2,0.718,0.718,0.974,2020,[477,439,402,697,76]],["제주도 찐 사투리",43,14,0,0.011,0.6,0.716,0.705,0.946,2020,[476,663,550,740,255]],["다메다메",64,30,1,0.044,0.0,0.771,0.727,0.931,2020,[731,139,66,280,538]],["훈발놈",55,81,0,0.04,0.4,0.749,0.709,0.928,2020,[530,544,629,627,764]],["세뇌교육",90,62,0,0.028,0.2,0.287,0.259,0.558,2020,[401,806,685,454,768]],["뭉탱이",47,35,1,0.028,0.8,0.795,0.767,0.985,2020,[793,316,282,726,624]],["치즈분수",67,69,0,0.031,0.4,0.39,0.359,0.585,2020,[475,131,752,718,85]],["한국인이 좋아하는 속도",40,14,0,0.002,0.0,0.532,0.529,0.828,2020,[311,129,27,349,201]],["당연히 말이 되죠",42,64,0,0.023,0.4,0.747,0.724,0.941,2020,[200,552,548,193,707]],["버스 안에서",64,55,0,0.017,0.0,0.375,0.358,0.491,2020,[7,790,647,199,113]],["너 인성에 문제 있어?",44,88,1,0.012,0.2,0.239,0.227,0.571,2020,[709,541,648,161,493]],["반으로 죽일 거야.",80,82,0,0.005,0.4,0.244,0.239,0.535,2020,[249,152,692,151,269]],["니팀버려",46,28,1,0.027,0.8,0.792,0.765,0.987,2020,[793,656,309,282,338]],["개인주의",89,68,1,0.041,0.4,0.481,0.44,0.714,2020,[34,266,359,286,291]],["축제가 아니라 장례식입니다",26,62,0,0.01,0.4,0.563,0.553,0.741,2020,[56,90,434,252,115]],["나비 효과",43,28,0,0.029,0.6,0.76,0.731,0.929,2020,[693,282,267,333,309]],["화려한 조명이 나를 감싸네",23,43,0,0.01,0.2,0.73,0.72,0.93,2020,[584,631,240,577,527]],["1일 00깡",7,71,1,0.029,0.4,0.788,0.758,0.952,2020,[575,496,67,270,495]],["정치를 좀 대국적으로 하십시오",20,40,0,0.01,0.2,0.733,0.723,0.916,2020,[582,172,271,773,298]],["임자 하고 싶은 대로 해",15,47,0,0.005,0.0,0.734,0.728,0.969,2020,[601,332,76,402,508]],["내돈내산",70,80,1,0.026,0.6,0.42,0.394,0.616,2020,[471,0,87,649,526]],["앞광고",85,55,0,0.024,0.4,0.407,0.383,0.677,2020,[301,745,505,241,551]],["진짜 세계관 최강자들의 00이다.",85,77,0,0.01,0.2,0.525,0.515,0.703,2020,[322,687,383,561,452]],["00 수준 실화냐?",10,70,1,0.015,0.6,0.714,0.699,0.913,2020,[300,362,295,630,233]],["가슴이 웅장해진다",30,42,1,0.016,0.6,0.698,0.682,0.865,2020,[686,189,240,373,631]],["살천지",80,38,0,0.047,0.4,0.8,0.753,0.965,2020,[447,688,340,216,9]],["역병앓이",58,42,0,0.043,0.2,0.776,0.732,0.933,2020,[715,145,178,636,66]],["나 이러면 진짜 섭섭해",16,48,0,0.002,0.4,0.662,0.66,0.907,2020,[289,258,6,26,264]],["나 진짜 한마디만 할게요",15,44,0,0.007,0.2,0.752,0.744,0.984,2020,[76,567,26,271,172]],["찜 쪄 먹기",38,36,0,0.022,0.4,0.792,0.77,0.976,2020,[675,354,388,267,699]],["넣을게",30,34,1,0.016,0.0,0.778,0.762,0.989,2020,[737,597,730,354,626]],["코스크",77,64,0,0.055,0.4,0.71,0.655,0.92,2020,[336,150,234,216,705]],["턱스크",72,66,0,0.052,0.6,0.711,0.659,0.903,2020,[335,610,141,551,150]],["확찐자",39,48,0,0.023,0.4,0.795,0.773,0.984,2020,[217,624,626,354,520]],["흥캬삐",45,30,0,0.027,0.6,0.798,0.771,0.984,2020,[316,796,656,492,793]],["죄송합니다",32,54,1,0.022,0.4,0.743,0.721,0.937,2020,[264,782,376,626,337]],["케경호",78,43,0,0.048,0.6,0.794,0.745,0.961,2020,[329,447,688,9,375]],["겜안분",44,37,0,0.025,0.8,0.796,0.771,0.979,2020,[793,309,316,520,354]],["관상드립",89,52,0,0.046,0.2,0.745,0.699,0.935,2020,[473,329,78,340,216]],["국룰",78,26,1,0.05,0.8,0.639,0.589,0.89,2020,[14,64,29,705,687]],["그 긴거",41,31,1,0.025,0.6,0.787,0.762,0.975,2020,[593,492,743,267,735]],["그댄 운명을 믿소?",38,80,0,0.007,0.0,0.591,0.584,0.774,2020,[564,213,148,154,200]],["긁다",62,61,0,0.042,0.6,0.712,0.671,0.9,2020,[498,818,610,420,725]],["금융치료",78,74,1,0.041,0.2,0.244,0.203,0.486,2020,[324,700,427,806,727]],["너희들 나 못 이겨",27,70,0,0.006,0.2,0.704,0.698,0.912,2020,[549,367,135,182,71]],["느슨해진 한국힙합에 긴장감을 주는 것 같다",22,33,0,-0.006,0.2,0.599,0.605,0.834,2020,[740,371,227,363,244]],["능지",80,56,1,0.054,0.6,0.765,0.711,0.933,2020,[121,724,375,732,801]],["많관부",68,73,1,0.049,0.6,0.702,0.653,0.867,2020,[253,629,562,121,607]],["맑은 눈의 광인",66,94,0,0.03,0.6,0.483,0.453,0.845,2020,[580,352,579,562,260]],["머선 129",7,84,0,0.039,0.4,0.665,0.626,0.839,2020,[453,65,523,575,50]],["머선 일이고",38,42,0,0.023,0.4,0.806,0.784,0.99,2020,[624,597,626,437,267]],["몽미",72,45,0,0.05,0.4,0.802,0.752,0.958,2020,[9,66,275,732,653]],["바선생",91,55,1,0.056,0.6,0.684,0.628,0.901,2020,[441,369,643,683,473]],["범 내려온다",30,41,0,0.017,0.4,0.765,0.747,0.948,2020,[217,482,597,268,128]],["사이버 렉카",62,37,0,0.022,0.2,0.613,0.591,0.762,2020,[612,188,435,421,299]],["사회적 거리두기",91,61,0,0.027,0.2,0.55,0.523,0.708,2020,[473,727,317,417,170]],["소설",90,54,0,0.048,0.4,0.473,0.426,0.72,2020,[454,806,251,417,469]],["심기체론",87,65,0,0.041,0.2,0.494,0.453,0.698,2020,[806,704,628,454,547]],["00이 복사가 된다고",8,68,1,0.014,0.4,0.745,0.732,0.97,2020,[300,496,495,468,540]],["아무 노래나 일단 틀어",11,39,0,0.002,0.2,0.725,0.723,0.984,2020,[76,402,567,477,244]],["알잘딱깔센",24,26,1,0.019,0.6,0.777,0.758,0.979,2020,[527,388,133,134,787]],["야스",58,75,1,0.051,0.6,0.775,0.723,0.946,2020,[759,204,292,694,627]],["워싱 칭따오",45,23,0,0.018,0.4,0.739,0.721,0.97,2020,[509,522,710,656,316]],["이건 못 참지",26,70,1,0.015,0.2,0.756,0.741,0.956,2020,[135,182,618,773,660]],["이제는 더 이상 물러날 곳이 없다",27,76,0,0.0,0.4,0.431,0.431,0.78,2020,[368,611,412,348,367]],["임포스터",89,57,0,0.047,0.4,0.631,0.583,0.847,2020,[356,441,342,473,107]],["잼민이",49,49,1,0.029,0.6,0.689,0.66,0.89,2020,[650,614,641,625,267]],["정신나갈것같애",21,38,0,0.01,0.0,0.764,0.754,0.989,2020,[271,172,737,597,710]],["치키치키차카차카초코초코초",15,28,0,0.007,0.0,0.698,0.691,0.929,2020,[443,16,769,255,476]],["큰거온다",44,35,1,0.027,0.4,0.755,0.727,0.917,2020,[777,388,364,735,333]],["테스형도 모른다고 하네요",18,61,0,0.004,0.2,0.735,0.73,0.964,2020,[773,125,672,76,252]],["텐션",82,46,1,0.056,0.2,0.785,0.729,0.961,2020,[121,216,803,751,329]],["해줘",41,59,1,0.028,0.2,0.813,0.784,0.978,2020,[268,230,192,354,566]],["훠훠훠",48,37,0,0.032,0.4,0.794,0.762,0.973,2020,[708,509,520,656,726]],["ㅋㅋ루삥뽕",38,28,0,0.019,0.2,0.773,0.754,0.975,2020,[267,796,428,89,737]],["hoxy",84,41,1,0.051,0.6,0.513,0.462,0.729,2020,[750,755,124,701,132]],["K-00",8,85,1,0.034,0.4,0.392,0.358,0.666,2020,[545,459,576,453,523]],["00에 진심인 편",10,59,1,0.017,0.6,0.772,0.755,0.979,2020,[496,133,540,300,477]],["00하하하",7,58,0,0.022,0.4,0.762,0.74,0.971,2020,[496,514,256,697,623]],["치피치피 차파차파",87,77,0,0.021,0.4,0.553,0.531,0.808,2024,[383,603,170,242,144]],["꽁꽁 얼어붙은 한강 위로 고양이가 걸어다닙니다",39,36,0,0.002,0.2,0.412,0.409,0.657,2024,[690,396,389,463,385]],["탕후루는 차갑다",37,34,1,0.014,0.4,0.707,0.693,0.9,2024,[110,715,333,337,172]],["국가권력급",93,64,1,0.024,0.0,0.303,0.279,0.581,2024,[766,605,170,561,383]],["밥똥던",56,79,0,0.038,0.6,0.723,0.685,0.923,2024,[44,36,759,118,292]],["한잔해",28,29,1,0.019,0.2,0.792,0.773,0.985,2024,[787,354,527,134,609]],["캣냅",62,33,0,0.038,0.8,0.723,0.685,0.89,2024,[778,9,654,717,292]],["브링방방",81,59,0,0.046,0.4,0.748,0.702,0.932,2024,[666,790,801,758,724]],["00은 계획대로 되지 않아",14,67,0,0.009,0.4,0.729,0.72,0.943,2024,[22,135,652,115,477]],["밤양갱",67,64,1,0.039,0.8,0.758,0.718,0.914,2024,[144,150,688,562,108]],["원영적 사고",94,58,1,0.044,0.0,0.466,0.422,0.734,2024,[494,806,454,286,417]],["야레야레 못말리는 아가씨",24,52,0,0.011,0.0,0.765,0.754,0.982,2024,[773,130,737,172,271]],["포켓몬 댄스",35,10,0,0.02,0.2,0.764,0.743,0.956,2024,[532,811,784,8,43]],["꽁꽁 얼어붙은 한강 위로",45,37,0,0.016,0.4,0.607,0.59,0.786,2024,[385,725,715,226,20]],["난 대학시절 묵찌빠를 전공했단 사실",11,42,0,-0.001,0.0,0.695,0.696,0.964,2024,[502,363,76,567,332]],["어디출신?",42,85,0,0.006,0.4,0.425,0.419,0.683,2024,[709,756,541,32,7]],["미시시피",78,33,0,0.036,0.8,0.64,0.604,0.791,2024,[680,29,329,10,375]],["어라운드 더 월드",45,31,0,0.023,0.0,0.743,0.72,0.897,2024,[582,293,452,735,636]],["좌뇌 우뇌 전두엽",88,63,0,0.017,0.2,0.371,0.354,0.592,2024,[768,308,361,588,666]],["맞다이로 들어와",11,42,0,0.004,0.2,0.737,0.733,0.983,2024,[363,76,567,477,672]],["럭키비키",61,18,1,0.031,0.4,0.74,0.709,0.922,2024,[476,537,206,689,25]],["평화누리특별자치도",85,38,0,0.02,0.4,0.381,0.361,0.575,2024,[126,78,687,603,612]],["직구 금지",90,67,0,0.032,0.2,0.509,0.477,0.672,2024,[170,266,181,417,369]],["마라탕후루",76,38,1,0.044,0.2,0.781,0.737,0.941,2024,[661,689,329,809,751]],["정상화",85,60,1,0.047,0.8,0.449,0.402,0.687,2024,[425,224,350,121,251]],["팩트는 00라는 거임",12,83,0,0.02,0.2,0.488,0.468,0.714,2024,[458,455,523,414,173]],["수수수수퍼노바",81,33,0,0.032,0.2,0.684,0.652,0.864,2024,[661,138,25,329,447]],["츠긍슴승 승르흐르르",57,33,0,0.028,0.8,0.734,0.706,0.904,2024,[293,651,537,206,474]],["시카노코노코노코코시탄탄",86,44,0,0.015,0.6,0.44,0.425,0.644,2024,[55,438,628,112,763]],["티라미숙해",28,70,1,0.019,0.4,0.765,0.745,0.946,2024,[462,268,743,773,606]],["티라미수 케익",69,66,1,0.027,0.2,0.412,0.385,0.545,2024,[260,336,342,85,335]],["하루만 기다리면 00가 나와요!",13,77,0,0.017,0.8,0.689,0.673,0.891,2024,[327,32,458,300,362]],["뉴진스럽다",55,38,0,0.031,0.4,0.759,0.728,0.924,2024,[503,528,316,145,793]],["폴라레티",87,39,0,0.043,0.4,0.654,0.61,0.873,2024,[78,138,632,524,375]],["신창섭",87,59,0,0.058,0.4,0.723,0.665,0.94,2024,[234,121,473,469,216]],["네 기꺼이",43,73,0,0.023,0.2,0.707,0.683,0.92,2024,[442,446,667,544,585]],["외모 췤!",56,90,0,0.038,0.4,0.722,0.684,0.91,2024,[35,542,302,569,204]],["쿵쿵따",57,56,0,0.034,0.4,0.783,0.749,0.953,2024,[725,530,292,675,534]],["미룬이",57,34,0,0.034,0.4,0.803,0.769,0.97,2024,[689,793,656,501,595]],["조이는 보이",57,80,0,0.04,0.8,0.619,0.58,0.815,2024,[441,683,713,307,47]],["창팝",72,28,0,0.045,0.6,0.673,0.628,0.844,2024,[687,689,10,265,406]],["다 해줬잖아",38,58,0,0.022,0.4,0.784,0.762,0.966,2024,[30,31,631,354,230]],["바로 리부트 정상화",55,57,0,0.029,0.6,0.667,0.639,0.811,2024,[744,2,519,407,634]],["이해가쏙쏙되잖아리슝좍아",32,51,0,0.017,0.2,0.773,0.756,0.979,2024,[235,597,631,240,737]],["유빈양",87,64,0,0.054,0.2,0.658,0.604,0.866,2024,[286,727,251,473,417]],["퍽 아디다스",33,29,0,0.017,0.4,0.775,0.759,0.987,2024,[737,796,334,267,609]],["개고기 미트볼",76,62,0,0.031,0.6,0.488,0.457,0.696,2024,[191,432,758,150,666]],["두 수 앞",74,61,0,0.039,0.4,0.688,0.649,0.872,2024,[184,179,724,562,744]],["제로 산소",88,72,0,0.018,0.2,0.269,0.251,0.435,2024,[361,792,547,696,228]],["마루는 강쥐",68,55,0,0.039,0.6,0.629,0.59,0.824,2024,[818,555,118,263,150]],["영역 전개",68,45,1,0.038,0.0,0.774,0.736,0.935,2024,[113,293,636,587,139]],["그럼 죽어",26,59,0,0.018,0.2,0.762,0.744,0.972,2024,[434,56,626,337,624]],["봇이지 뭐",48,55,0,0.028,0.4,0.788,0.76,0.947,2024,[708,154,654,337,702]],["괜찮아 딩딩딩딩딩",49,64,0,0.031,0.8,0.755,0.724,0.921,2024,[51,544,223,298,376]],["갈까말까",29,51,0,0.016,0.2,0.787,0.771,0.989,2024,[597,737,354,334,631]],["도파민",86,43,1,0.055,0.8,0.675,0.621,0.901,2024,[55,444,803,705,375]],["떳떳하면 가만히 있으면 된다",17,39,0,0.003,0.2,0.732,0.729,0.977,2024,[371,271,172,26,304]],["억울한 남자",82,72,0,0.031,0.6,0.574,0.543,0.744,2024,[34,683,263,266,170]],["개저씨",63,82,1,0.049,0.6,0.7,0.651,0.905,2024,[356,307,683,629,107]],["즐거우시냐구요",42,71,0,0.02,0.6,0.712,0.691,0.922,2024,[418,466,667,736,30]],["돈키호테 도플라밍고",12,32,0,0.008,0.0,0.725,0.718,0.967,2024,[16,540,769,623,488]],["도황",86,44,1,0.061,0.6,0.723,0.662,0.935,2024,[234,705,216,121,375]],["젤란아 와이파이 꺼라",18,33,0,0.006,0.0,0.736,0.73,0.971,2024,[787,363,271,172,567]],["젠장 00 난 네가 좋다",34,70,0,0.011,0.2,0.705,0.694,0.933,2024,[516,274,466,602,707]],["몽정규",78,39,0,0.043,0.4,0.8,0.757,0.963,2024,[329,340,688,9,655]],["축구의 시대",75,60,0,0.019,0.0,0.367,0.348,0.518,2024,[241,196,486,798,429]],["리 미제라블",8,35,0,0.013,0.0,0.728,0.715,0.964,2024,[754,697,452,623,488]],["앱솔칼리버",60,25,0,0.029,0.2,0.756,0.726,0.918,2024,[280,212,767,25,447]],["쌀숭이",72,35,0,0.038,0.2,0.537,0.499,0.687,2024,[265,406,355,590,457]],["온 세상이 리선족",12,39,0,0.007,0.0,0.744,0.737,0.975,2024,[697,582,16,79,244]],["00창섭",9,83,0,0.043,0.4,0.762,0.719,0.954,2024,[65,575,523,50,495]],["대재학",92,53,0,0.05,0.4,0.676,0.626,0.913,2024,[806,251,473,655,78]],["00선족",12,86,0,0.045,0.6,0.676,0.63,0.917,2024,[523,65,453,576,525]],["메벤남",62,34,0,0.041,0.4,0.797,0.757,0.965,2024,[9,24,66,595,501]],["메숭이",55,47,0,0.033,0.4,0.65,0.617,0.835,2024,[11,818,10,435,421]],["이 또한 00의 은혜겠지요",13,80,0,0.019,0.6,0.617,0.598,0.869,2024,[414,526,455,327,32]],["KC 인증 00",7,85,0,0.021,0.6,0.273,0.252,0.571,2024,[380,545,523,576,455]],["00은 너무 어려워",25,70,0,0.021,0.6,0.688,0.667,0.87,2024,[738,412,391,462,381]],["00핑",12,87,0,0.059,0.6,0.684,0.625,0.86,2024,[65,453,525,576,523]],["T라 미숙해",33,58,0,0.017,0.2,0.788,0.771,0.973,2024,[268,606,597,354,631]],["여우가 범의 허리를 끊었다",29,38,0,0.009,0.0,0.721,0.712,0.907,2024,[357,45,217,195,796]],["험한 것이 나왔다",61,69,0,0.031,0.4,0.746,0.715,0.899,2024,[764,725,118,228,530]],["머리를 내리쳐요",32,40,0,0.017,0.2,0.775,0.758,0.973,2024,[217,737,337,624,626]],["생각만 해도 너무 즐거워요",22,48,0,0.009,0.2,0.733,0.724,0.96,2024,[577,240,508,602,548]],["해병문학",88,32,0,0.029,0.2,0.462,0.434,0.74,2024,[467,226,661,166,524]],["00속도로 달려왔습니다",12,60,1,0.014,0.4,0.767,0.753,0.97,2024,[477,496,630,381,609]],["이븐",86,51,1,0.06,0.6,0.72,0.66,0.935,2024,[234,417,121,444,375]],["채소의 익힘 정도",70,58,1,0.03,0.4,0.417,0.387,0.648,2024,[257,682,718,555,131]],["보류 드리겠습니다.",51,75,1,0.035,0.4,0.671,0.636,0.875,2024,[728,307,629,193,544]],["오늘 급식 메뉴는 뭔가요?",66,75,0,0.01,0.4,0.254,0.243,0.592,2024,[475,161,698,131,752]],["고종원",91,54,0,0.052,0.4,0.75,0.698,0.944,2024,[342,251,216,329,375]],["고죠 백토루",50,31,1,0.029,0.6,0.804,0.775,0.964,2024,[492,298,354,537,376]],["이 음식은 00주자",66,72,0,0.022,0.2,0.446,0.424,0.673,2024,[131,455,161,472,458]],["료이키 텐카이",45,16,0,0.017,0.4,0.737,0.72,0.957,2024,[663,255,305,509,550]],["근데 이제 00을 곁들인",11,51,1,0.007,0.2,0.752,0.745,0.985,2024,[540,672,26,697,76]],["나야, 들기름",40,54,0,0.022,0.4,0.747,0.725,0.918,2024,[337,606,376,708,30]],["나야 00",11,63,1,0.03,0.6,0.775,0.746,0.941,2024,[496,514,630,321,376]],["물고기",88,32,0,0.026,0.0,0.35,0.324,0.61,2024,[467,137,166,226,429]],["빠스잖아?",37,63,0,0.021,0.0,0.779,0.757,0.974,2024,[154,437,426,337,597]],["조이보아씨 여기로 내려와봐유",21,47,0,0.006,0.0,0.752,0.745,0.973,2024,[597,402,394,172,271]],["준비되었어유?",40,83,0,0.017,0.4,0.352,0.335,0.567,2024,[709,564,213,146,13]],["우리 동네는 밤마다 울려 총성",16,36,0,0.003,0.2,0.682,0.679,0.893,2024,[584,79,26,172,271]],["아파트 아파트 아파트 아파트",82,56,0,0.014,0.0,0.22,0.206,0.404,2024,[187,427,790,712,241]],["공을 네모 안에 넣어",31,31,0,0.012,0.6,0.712,0.7,0.88,2024,[388,699,333,743,268]],["너 기미지비자나",27,57,0,0.011,0.0,0.763,0.752,0.964,2024,[592,568,630,631,597]],["도영아 니땀시 살어야",8,39,0,0.001,0.0,0.705,0.704,0.971,2024,[754,363,402,16,79]],["도니살",76,29,0,0.049,0.2,0.713,0.664,0.908,2024,[25,444,203,329,138]],["야구를 누가 즐겁게 봐요",27,40,0,0.008,0.2,0.658,0.65,0.846,2024,[486,577,77,466,240]],["투마카세",69,20,0,0.029,0.2,0.696,0.667,0.894,2024,[556,127,15,25,142]],["매그내릭",42,32,0,0.025,0.4,0.805,0.78,0.986,2024,[267,624,354,338,626]],["이해가 되셨을까요?",43,83,0,0.026,0.2,0.417,0.392,0.646,2024,[146,541,5,709,564]],["계몽령",93,59,0,0.045,0.0,0.621,0.576,0.821,2024,[417,724,216,170,473]],["00이 되",6,76,0,0.03,0.6,0.757,0.727,0.973,2024,[575,300,50,362,496]],["00하게 되",7,61,0,0.021,0.4,0.778,0.758,0.984,2024,[133,540,381,623,697]],["각자도생",64,74,0,0.027,0.2,0.672,0.645,0.828,2024,[799,629,286,283,585]],["긁",65,67,1,0.051,0.6,0.643,0.592,0.865,2024,[346,610,336,642,818]],["김쁠뿡",43,27,0,0.024,0.6,0.786,0.762,0.981,2024,[509,793,267,520,230]],["까탈레나 피크민",61,22,0,0.023,0.2,0.687,0.664,0.852,2024,[556,767,212,450,787]],["나거한",57,51,0,0.037,0.4,0.819,0.783,0.976,2024,[595,654,552,566,624]],["난 대학시절 000을 전공했단 사실",10,47,0,0.006,0.4,0.706,0.7,0.945,2024,[397,540,477,332,26]],["뉴진스님",48,44,0,0.029,0.6,0.762,0.733,0.922,2024,[415,528,298,9,268]],["러닝 크루",75,57,0,0.042,0.4,0.754,0.711,0.936,2024,[666,719,113,801,732]],["로스트 미디어",81,50,0,0.038,0.2,0.632,0.595,0.805,2024,[745,241,794,473,121]],["마인크래프트인데",52,52,0,0.021,0.4,0.737,0.715,0.883,2024,[702,435,223,113,169]],["억까",54,69,1,0.042,0.2,0.802,0.76,0.961,2024,[654,552,530,627,544]],["암파인 괜찮아",16,52,0,0.012,0.2,0.766,0.754,0.978,2024,[601,592,773,76,26]],["앙딱정",48,23,0,0.028,0.8,0.788,0.76,0.985,2024,[656,793,316,499,256]],["야흐야 사리 연설",38,44,0,0.018,0.4,0.762,0.744,0.944,2024,[625,592,782,298,606]],["어제 내 세상이 무너졌어",21,52,0,0.01,0.4,0.727,0.717,0.922,2024,[258,412,482,26,6]],["오야스미",64,28,1,0.043,0.4,0.759,0.717,0.928,2024,[142,66,689,653,731]],["오카네카세구",55,18,0,0.02,0.0,0.726,0.705,0.914,2024,[509,127,543,476,556]],["00게이",8,61,1,0.023,0.4,0.772,0.748,0.975,2024,[134,496,382,235,256]],["이것뭐에요?",39,80,0,0.02,0.0,0.407,0.387,0.609,2024,[564,213,146,148,117]],["이대로 괜찮은가",34,68,0,0.018,0.4,0.741,0.723,0.947,2024,[274,446,508,707,376]],["이머전시",41,43,1,0.024,0.6,0.797,0.774,0.976,2024,[743,735,381,496,268]],["자낳괴",80,57,1,0.052,0.4,0.7,0.648,0.887,2024,[646,216,121,562,234]],["자중해",54,65,0,0.038,0.8,0.812,0.775,0.965,2024,[534,376,553,552,268]],["짜치다",43,44,1,0.027,0.4,0.789,0.762,0.986,2024,[88,726,793,708,624]],["천룡인",48,20,0,0.029,1.0,0.792,0.763,0.984,2024,[282,793,256,267,104]],["크아악 롤랑",34,28,0,0.016,0.2,0.763,0.748,0.981,2024,[737,710,428,267,568]],["테무산 00",9,84,0,0.039,0.4,0.696,0.656,0.931,2024,[453,455,65,50,575]],["테토리스",90,41,0,0.042,0.4,0.574,0.532,0.831,2024,[416,78,203,444,138]],["00바오",9,81,1,0.041,0.4,0.739,0.698,0.936,2024,[65,495,575,453,50]],["00처럼 달러왔습니다",10,73,1,0.023,0.6,0.689,0.666,0.892,2024,[362,495,575,300,458]],["멋지다 연진아",22,30,0,0.012,0.4,0.771,0.758,0.985,2023,[787,271,172,388,42]],["뉴진스의 하입보이요",29,33,0,0.013,0.2,0.761,0.748,0.962,2023,[609,597,737,527,26]],["우리 엄마엄마가",24,46,0,0.013,0.0,0.718,0.705,0.93,2023,[657,208,247,807,787]],["마따끄",59,74,0,0.043,0.4,0.809,0.767,0.97,2023,[211,654,283,292,759]],["나문희의 첫사랑",73,48,0,0.027,0.4,0.525,0.498,0.688,2023,[662,105,220,751,138]],["나이트 댄서",34,8,0,0.022,0.2,0.73,0.708,0.945,2023,[395,811,784,198,693]],["고도로 발달한 00는 00와 구분할 수 없다",9,76,0,0.014,0.6,0.65,0.636,0.878,2023,[50,391,575,362,67]],["문단속",60,57,1,0.039,0.2,0.819,0.78,0.967,2023,[501,595,519,764,530]],["뽀삐뽀삐뽀 뽀삐뽀",50,52,0,0.028,0.0,0.785,0.757,0.951,2023,[725,708,337,217,566]],["해피캣",78,37,0,0.046,0.2,0.732,0.686,0.913,2023,[406,751,803,25,284]],["이궈궈던",48,23,1,0.026,0.6,0.795,0.769,0.968,2023,[267,492,354,104,206]],["아디아디아디",61,29,0,0.043,0.0,0.785,0.742,0.957,2023,[66,280,212,145,636]],["강풍 올백",66,54,0,0.025,0.2,0.504,0.479,0.667,2023,[634,242,777,691,724]],["00한 건에 대하여",8,53,0,0.012,0.4,0.758,0.746,0.987,2023,[623,477,697,133,574]],["너 T야?",44,86,0,0.025,0.2,0.511,0.485,0.774,2023,[756,596,307,709,146]],["크아아악! 00아!",55,88,0,0.031,0.2,0.786,0.754,0.942,2023,[654,708,606,245,88]],["아오 페리시치",49,22,0,0.025,0.4,0.793,0.768,0.972,2023,[256,235,338,267,509]],["좋았어 영차",50,73,0,0.036,0.6,0.801,0.765,0.965,2023,[627,376,553,654,552]],["LK-99",8,84,1,0.029,0.4,0.314,0.284,0.604,2023,[380,459,753,576,353]],["초전도체",76,56,1,0.036,0.2,0.513,0.477,0.774,2023,[721,804,762,433,817]],["인생 하드모드",91,69,0,0.036,0.2,0.608,0.573,0.786,2023,[40,603,691,170,692]],["어 맞아맞아 놀랍지만 그건 사실이야",19,47,0,0.007,0.2,0.732,0.725,0.964,2023,[601,240,508,130,123]],["피어나 너 내 도도독",29,64,0,0.012,0.2,0.761,0.75,0.952,2023,[487,707,462,568,585]],["워싱시",48,16,1,0.027,0.4,0.755,0.727,0.958,2023,[521,256,509,104,127]],["슬릭백",77,56,1,0.051,0.6,0.745,0.694,0.927,2023,[732,666,121,562,234]],["I am신뢰에요",48,66,0,0.035,0.4,0.808,0.772,0.971,2023,[200,376,553,595,501]],["I am 00에요",52,67,1,0.041,0.4,0.807,0.766,0.963,2023,[552,519,544,744,376]],["똑똑한 청년",53,70,1,0.031,0.4,0.552,0.522,0.726,2023,[47,638,422,713,799]],["장충동왕족발보쌈",66,55,1,0.027,0.4,0.64,0.612,0.836,2023,[718,432,118,661,818]],["럼자오자레",65,22,0,0.031,0.6,0.768,0.737,0.943,2023,[25,142,689,474,9]],["당근칼",78,73,0,0.03,0.8,0.522,0.491,0.713,2023,[150,151,191,666,152]],["기습숭배",95,53,1,0.035,0.6,0.413,0.378,0.67,2023,[203,746,454,393,633]],["나 00인데 개추 눌렀다",20,55,0,0.014,0.4,0.775,0.761,0.97,2023,[630,631,477,45,468]],["00에서 연락옴",11,66,0,0.017,0.6,0.731,0.714,0.938,2023,[300,496,381,391,468]],["치피치피 차파차파",86,77,0,0.021,0.4,0.553,0.531,0.808,2023,[383,603,170,242,144]],["전두광",77,54,1,0.053,0.4,0.792,0.739,0.957,2023,[121,375,216,803,355]],["00햄",17,84,1,0.043,0.0,0.487,0.443,0.687,2023,[54,614,461,455,141]],["근데 이제 뭐함?",38,79,0,0.014,0.0,0.657,0.642,0.893,2023,[213,148,86,481,154]],["강해린 이상하다",61,64,0,0.029,0.6,0.544,0.515,0.721,2023,[464,617,149,169,242]],["하입보이요",41,52,0,0.027,0.2,0.809,0.782,0.985,2023,[624,354,626,230,192]],["나 지금 되게 신나",15,42,0,0.007,0.2,0.751,0.744,0.985,2023,[672,76,332,737,26]],["네 덕분이야 연진아",28,46,0,0.013,0.4,0.774,0.761,0.987,2023,[737,710,240,334,631]],["멋지다, 연진아!",54,90,0,0.029,0.2,0.699,0.67,0.92,2023,[703,35,28,774,542]],["알아들었으면 끄덕여",28,49,0,0.013,0.0,0.768,0.756,0.981,2023,[568,597,710,737,631]],["오늘부터 내 꿈은 너야",25,52,0,0.01,0.4,0.712,0.702,0.907,2023,[631,231,549,772,707]],["이사라가 니 남친이야?",45,83,0,0.015,0.2,0.356,0.342,0.583,2023,[756,220,541,596,146]],["차 타고요",34,40,0,0.019,0.2,0.785,0.766,0.977,2023,[354,597,334,737,735]],["00 비상 00따운 00나와",7,52,0,0.011,0.2,0.76,0.748,0.981,2023,[540,697,477,496,623]],["00 따운",8,77,1,0.031,0.6,0.754,0.723,0.968,2023,[495,50,300,65,362]],["대00",11,87,1,0.058,0.4,0.654,0.596,0.888,2023,[455,65,453,523,525]],["새삼 00가 대단하다고 느껴지네",17,51,0,0.007,0.4,0.739,0.733,0.968,2023,[477,657,508,240,120]],["00은 00에게 지지 않습니다",12,79,0,0.018,0.0,0.453,0.436,0.739,2023,[533,458,455,391,414]],["맑눈광",66,95,1,0.039,0.4,0.628,0.589,0.88,2023,[580,156,352,562,587]],["맑은 눈의 광인",66,95,1,0.03,0.6,0.483,0.453,0.845,2023,[580,352,579,562,260]],["그 이왕이면 혁명이란 멋진 단어를 쓰십시오",87,76,0,0.011,0.4,0.36,0.349,0.588,2023,[583,277,633,203,322]],["세상은 그대로야",22,40,0,0.013,0.2,0.777,0.764,0.982,2023,[597,26,172,271,737]],["실패하면 반역 성공하면 혁명",88,77,0,0.009,0.0,0.43,0.42,0.684,2023,[561,383,581,170,603]],["오늘 밤은 여기가 최전방이야",25,42,0,0.009,0.4,0.757,0.748,0.959,2023,[631,577,609,26,240]],["너 하나회야",32,65,0,0.017,0.6,0.765,0.748,0.946,2023,[487,376,549,707,231]],["내가 니들 상관의 상관이야",26,52,0,0.01,0.2,0.73,0.72,0.94,2023,[487,259,631,707,568]],["우이빔",68,45,0,0.045,0.2,0.797,0.752,0.952,2023,[113,139,688,145,293]],["왼손은 거들 뿐",62,62,0,0.015,0.4,0.613,0.598,0.751,2023,[108,190,534,666,559]],["이거 보세요오",41,58,1,0.024,0.2,0.783,0.759,0.961,2023,[566,708,230,192,30]],["바부바부바부바부",78,30,0,0.021,0.4,0.51,0.489,0.697,2023,[661,409,680,632,14]],["저쪽 집이 무너졌다고 해서 구경하러 갔죠",19,46,0,-0.001,0.2,0.677,0.678,0.909,2023,[482,289,6,511,120]],["홍박사님을 아세요",19,47,0,0.012,0.0,0.772,0.759,0.982,2023,[787,672,630,597,527]],["그 긴거",39,30,1,0.025,0.6,0.787,0.762,0.975,2023,[593,492,743,267,735]],["꽃 향기만 남기고 갔단다",23,35,0,0.005,0.2,0.694,0.689,0.924,2023,[807,796,371,240,527]],["나거한",56,53,0,0.037,0.4,0.819,0.783,0.976,2023,[595,654,552,566,624]],["너 내 도도독",45,79,0,0.021,0.0,0.717,0.696,0.91,2023,[549,307,585,772,544]],["넘어갈게요",28,41,0,0.015,0.2,0.786,0.771,0.992,2023,[437,737,334,354,631]],["놀라울 만큼 그 누구도 관심을 주지 않았다.",47,89,0,-0.003,0.2,-0.022,-0.02,0.232,2023,[33,197,611,368,12]],["당신도 나락에 갈 수 있다.",49,75,0,0.002,0.6,0.341,0.339,0.549,2023,[471,13,193,418,116]],["빵빵아 옥지얌",41,40,0,0.021,0.0,0.787,0.766,0.977,2023,[337,726,217,568,354]],["사실 어그로 맞음",14,48,0,0.008,0.0,0.742,0.734,0.98,2023,[76,508,773,402,332]],["00이 맛있고 00이 친절해요",17,56,0,0.015,0.0,0.755,0.74,0.961,2023,[657,508,577,630,466]],["순살아파트",90,70,0,0.041,0.2,0.704,0.663,0.908,2023,[170,342,329,473,78]],["아아 공습경보",52,38,0,0.031,0.2,0.782,0.752,0.937,2023,[128,113,293,735,145]],["지평좌표계",89,62,0,0.038,0.2,0.57,0.531,0.805,2023,[214,417,170,251,613]],["에헤이 조졌네 이거",34,53,0,0.018,0.0,0.788,0.77,0.978,2023,[123,235,77,217,337]],["원종단",82,61,0,0.049,0.4,0.758,0.709,0.939,2023,[121,724,562,234,473]],["이건 마지막 경고요",25,54,0,0.013,0.6,0.706,0.694,0.88,2023,[570,133,660,615,268]],["이게 노터치야",29,29,0,0.015,0.4,0.779,0.764,0.985,2023,[737,428,267,354,388]],["딸깍",74,64,1,0.054,0.8,0.746,0.691,0.919,2023,[562,551,121,355,666]],["이제는 더 이상 물러날 곳이 없다",27,76,0,0.0,0.4,0.431,0.431,0.78,2023,[368,611,412,348,367]],["인터넷 야메로",65,37,0,0.027,0.2,0.52,0.493,0.715,2023,[358,63,188,794,505]],["기습시위",81,66,0,0.046,0.0,0.622,0.576,0.869,2023,[758,719,390,417,504]],["잼버리",50,52,0,0.038,1.0,0.694,0.656,0.89,2023,[650,370,641,292,654]],["제기랄, 또 00야",28,51,1,0.016,0.2,0.761,0.745,0.964,2023,[606,570,133,235,568]],["취재가 시작되자",16,35,0,0.009,0.2,0.737,0.728,0.954,2023,[26,787,527,402,582]],["폼 미쳤다",53,62,1,0.032,0.4,0.769,0.737,0.95,2023,[617,169,299,725,337]],["할 말이 없네",22,66,1,0.017,0.2,0.763,0.746,0.971,2023,[252,182,773,115,660]],["휘슬",70,42,0,0.051,0.2,0.781,0.729,0.947,2023,[355,732,284,24,145]],["WWE",75,62,0,0.026,0.4,0.355,0.329,0.482,2023,[191,241,732,551,429]],["00는 이 일을 기억할 것입니다.",28,85,0,0.018,0.6,0.465,0.447,0.688,2023,[458,32,471,173,414]],["00의 봄",10,83,0,0.031,0.4,0.535,0.504,0.696,2023,[65,455,453,523,744]],["00가 되어줘",7,52,0,0.01,0.2,0.741,0.73,0.984,2023,[540,697,496,477,574]],["말아주다",41,46,1,0.024,0.2,0.803,0.779,0.99,2023,[626,354,793,123,492]],["할매니얼",43,37,0,0.028,0.6,0.802,0.774,0.973,2021,[492,256,114,624,722]],["비질게",37,45,0,0.022,0.6,0.795,0.773,0.989,2023,[624,354,597,334,793]],["넵병",53,75,0,0.045,0.6,0.789,0.743,0.962,2023,[544,237,507,653,204]],["증발물",82,56,0,0.054,0.2,0.636,0.582,0.861,2022,[804,234,802,705,758]],["억텐",60,77,1,0.051,0.4,0.758,0.707,0.935,2021,[121,507,800,810,627]],["00해주면 조켄네",14,56,0,0.017,0.4,0.785,0.768,0.981,2024,[592,133,477,540,672]],["그런 날 있잖아",26,48,0,0.014,0.2,0.781,0.767,0.987,2023,[597,240,737,568,437]],["달란트",81,28,0,0.049,1.0,0.674,0.626,0.883,2023,[29,680,687,375,78]],["왕위계승",93,51,1,0.039,0.4,0.58,0.541,0.818,2022,[203,277,473,170,78]],["운있풍있",66,49,0,0.035,0.4,0.779,0.744,0.929,2024,[777,688,113,242,799]],["네카라쿠배",72,20,1,0.027,0.4,0.58,0.554,0.817,2021,[491,64,15,127,687]],["드래용",58,37,0,0.038,0.0,0.798,0.759,0.967,2024,[145,280,20,139,706]],["미라클 모닝",55,27,1,0.03,0.2,0.778,0.748,0.934,2025,[767,280,795,760,595]],["고능하다",70,73,0,0.048,0.6,0.617,0.568,0.813,2024,[253,350,356,629,799]],["너무 무서워",59,72,0,0.016,0.6,0.418,0.402,0.635,2025,[464,786,44,617,149]],["먹BREAD",84,50,0,0.061,0.4,0.694,0.633,0.912,2023,[705,234,216,417,375]],["쌈@뽕하다",49,47,1,0.028,0.2,0.79,0.762,0.956,2024,[333,600,725,492,298]],["스껄",64,76,1,0.057,0.6,0.747,0.69,0.928,2022,[759,649,121,530,562]],["월루",81,45,1,0.061,0.4,0.716,0.655,0.918,2021,[751,121,444,216,234]],["나 안아",46,68,1,0.028,0.4,0.678,0.65,0.854,2024,[189,667,552,679,501]],["박이박이차돌박이 신기방기뽕뽕방기",28,27,0,0.007,0.4,0.726,0.719,0.94,2022,[699,364,527,388,185]],["반모",77,50,0,0.056,0.6,0.746,0.69,0.923,2021,[121,791,751,642,518]],["휀걸",50,35,0,0.027,0.4,0.753,0.726,0.925,2023,[20,573,293,128,702]],["문제가 될까요?",42,88,0,0.021,0.4,0.264,0.243,0.523,2024,[709,314,493,117,671]],["돈쭐",73,67,1,0.052,0.6,0.786,0.734,0.942,2021,[275,121,292,530,654]],["잼얘",48,49,1,0.026,0.4,0.703,0.676,0.909,2023,[370,614,641,245,600]],["츄베릅",58,36,1,0.038,0.4,0.804,0.766,0.976,2023,[24,656,139,726,66]],["00 감성 모르면 나가",14,62,1,0.009,0.4,0.737,0.728,0.952,2024,[22,252,133,574,6]],["아할",60,66,1,0.052,0.6,0.805,0.753,0.963,2023,[66,654,759,694,507]],["크보",57,61,1,0.042,0.4,0.82,0.778,0.975,2025,[292,694,595,501,211]],["선학개미",81,42,0,0.045,0.4,0.775,0.73,0.945,2022,[447,375,340,688,809]],["꾸안꾸",50,25,1,0.031,0.6,0.793,0.761,0.985,2021,[509,316,338,793,282]],["어머님 00가 너무 잘해요",16,52,0,0.009,0.0,0.743,0.734,0.97,2024,[508,577,76,672,567]],["외계인 침공 시 00한 사람이 먼저 잡아먹힌다.",77,83,1,0.005,0.2,0.193,0.188,0.383,2024,[60,202,279,152,151]],["블챌",75,47,1,0.047,0.2,0.728,0.681,0.902,2022,[809,113,562,234,355]],["환승연애 이딴 거 안 나왔어",22,61,0,0.01,0.0,0.764,0.754,0.984,2023,[115,710,371,737,773]],["자강두천",82,35,1,0.045,0.6,0.765,0.72,0.945,2021,[688,329,562,406,803]],["사랑핵",72,74,0,0.034,0.2,0.423,0.388,0.639,2023,[531,87,644,497,286]],["킵고잉",36,21,1,0.016,0.2,0.756,0.74,0.972,2024,[522,737,255,710,267]],["웃수저",51,81,1,0.04,0.6,0.685,0.645,0.89,2022,[674,204,627,642,36]],["술의눈 백 개 마셨다",22,30,0,0.013,0.6,0.746,0.732,0.932,2023,[388,133,364,630,540]],["중꺾마",77,63,1,0.046,0.2,0.758,0.712,0.945,2022,[150,504,390,113,141]],["느좋",48,74,1,0.037,0.4,0.761,0.723,0.946,2024,[193,544,627,552,507]],["목젖 6부 능선",67,52,0,0.032,0.4,0.631,0.599,0.783,2023,[109,666,744,141,113]],["깔끼하네",41,47,1,0.025,0.4,0.774,0.748,0.966,2024,[309,520,192,230,341]],["사건이다",80,66,0,0.045,0.4,0.696,0.652,0.875,2024,[724,607,629,121,810]],["근데! 하지만! 그러나! But! However! Ne",47,86,0,0.02,0.0,0.457,0.437,0.662,2022,[229,213,564,800,786]],["00하는 나 제법 젠틀해요",13,49,0,0.007,0.4,0.753,0.746,0.985,2021,[76,567,477,133,332]],["힝구리퐁퐁",47,23,0,0.022,0.2,0.771,0.748,0.954,2022,[543,537,377,600,509]],["웃안웃",47,76,0,0.032,0.6,0.674,0.643,0.883,2022,[664,442,667,748,544]],["쪄죽따",46,42,0,0.027,0.2,0.8,0.773,0.973,2022,[333,624,492,566,354]],["ㄴㅇㄱ",54,28,1,0.042,0.6,0.747,0.705,0.974,2021,[180,287,183,246,24]],["나만의 블랙스완",59,67,0,0.022,0.4,0.651,0.629,0.782,2024,[392,596,764,283,595]],["하이브리드 고백",82,60,0,0.04,0.4,0.673,0.632,0.831,2023,[724,242,375,417,113]],["기분이다",50,69,0,0.032,0.6,0.686,0.655,0.861,2024,[667,552,228,644,200]],["황밸",82,34,1,0.047,0.4,0.741,0.694,0.922,2022,[329,688,809,447,705]],["개구리화 현상",62,50,0,0.03,0.2,0.484,0.454,0.689,2023,[11,555,457,432,166]],["식물확대범",73,51,0,0.031,0.6,0.318,0.286,0.568,2022,[470,257,808,613,555]],["하남자",79,69,1,0.048,0.4,0.767,0.719,0.922,2022,[275,284,216,34,121]],["라할살",77,28,0,0.047,0.2,0.645,0.598,0.859,2021,[25,489,138,14,661]],["전업자녀",88,58,1,0.04,0.2,0.499,0.458,0.69,2023,[646,427,473,518,417]],["가슴에 국밥 쏟음",32,35,0,0.017,0.2,0.733,0.716,0.922,2024,[333,185,388,699,796]],["민초단",76,26,1,0.042,0.4,0.716,0.674,0.898,2021,[127,23,695,29,329]],["돔황차",75,43,1,0.042,0.4,0.812,0.77,0.964,2021,[329,534,9,447,340]],["질누하",64,28,0,0.04,0.4,0.804,0.764,0.97,2023,[421,66,9,656,139]],["빌려온 고양이 같이",37,35,0,0.015,0.0,0.714,0.699,0.887,2025,[796,568,354,730,217]],["도달가능미",71,52,0,0.039,0.4,0.763,0.725,0.918,2024,[242,113,634,688,447]],["용두사망",90,69,0,0.042,0.0,0.584,0.542,0.814,2022,[603,170,758,417,216]],["맵치광이",44,28,0,0.025,0.6,0.794,0.769,0.977,2022,[793,267,282,796,492]],["깐부",57,72,1,0.045,0.6,0.798,0.752,0.969,2021,[292,654,66,24,708]],["푸데푸데",68,21,0,0.038,0.8,0.726,0.688,0.906,2024,[127,29,142,23,687]],["나잇값 하라구요? 싫어용.",53,85,0,0.027,0.6,0.542,0.515,0.745,2025,[786,44,367,738,181]],["다들 00 하길래",7,48,0,0.009,0.2,0.748,0.739,0.984,2024,[623,540,477,574,496]],["식집사",71,72,1,0.028,0.2,0.409,0.381,0.593,2022,[472,475,294,745,712]],["솜넣이 필요해",31,29,0,0.016,0.2,0.776,0.76,0.982,2023,[334,737,354,609,796]],["런치플레이션",75,73,0,0.033,0.8,0.462,0.428,0.604,2022,[649,526,576,251,427]],["무물",81,39,1,0.061,0.6,0.732,0.672,0.927,2021,[234,29,444,705,809]],["처돌이",51,44,1,0.029,0.6,0.799,0.771,0.962,2021,[128,20,354,282,267]],["웅니웅빠",52,88,0,0.036,0.6,0.726,0.69,0.925,2022,[569,748,204,627,667]],["야수의 심장",81,68,1,0.027,0.2,0.402,0.375,0.651,2021,[361,19,432,429,143]],["추구미",84,47,1,0.06,0.4,0.739,0.679,0.949,2023,[234,375,216,121,803]],["듀아아아",54,25,0,0.031,0.6,0.796,0.766,0.972,2025,[767,280,104,492,267]],["반박 시 니 말이 맞음",23,55,1,0.01,0.2,0.753,0.743,0.963,2021,[231,508,601,592,568]],["읏쇼 읏쇼",45,58,0,0.03,0.6,0.802,0.772,0.982,2024,[31,30,520,88,377]],["너 뭐 돼?",41,88,1,0.02,0.0,0.435,0.415,0.721,2022,[541,398,148,146,756]],["엥 감전당했나",25,34,0,0.008,0.2,0.753,0.745,0.988,2023,[737,568,740,271,172]],["점메추",84,42,1,0.049,0.6,0.627,0.578,0.851,2021,[705,661,803,444,234]],["복복복",85,49,0,0.05,0.4,0.69,0.64,0.887,2023,[705,234,121,803,335]],["갓생",51,72,1,0.04,0.2,0.755,0.715,0.926,2021,[544,627,708,654,530]],["밈첩하다",71,59,1,0.04,0.6,0.764,0.725,0.907,2023,[534,562,350,724,178]],["떨렌다",50,36,1,0.034,0.4,0.799,0.765,0.972,2023,[309,338,777,656,725]],["카우룽 카우룽",65,19,0,0.026,0.2,0.633,0.607,0.845,2024,[403,15,695,491,25]],["촌캉스",60,40,1,0.034,0.6,0.77,0.735,0.922,2023,[654,9,206,595,501]],["차카니 몇 개를 먹은 거람",65,56,0,0.02,0.8,0.612,0.591,0.794,2024,[555,406,109,641,763]],["닝바닝",79,63,0,0.051,0.6,0.716,0.666,0.927,2022,[801,504,666,150,417]],["빵빠레 불면서 시작",50,45,0,0.023,0.4,0.653,0.63,0.799,2023,[333,294,675,725,85]],["공능제",78,56,0,0.046,0.2,0.583,0.537,0.843,2021,[546,762,804,628,112]],["분좋카",37,41,0,0.021,0.4,0.779,0.759,0.977,2022,[256,235,499,267,568]],["이건안, 이지에",29,53,0,0.013,0.0,0.749,0.736,0.967,2023,[394,426,235,437,773]],["진순파",82,63,0,0.049,0.6,0.771,0.722,0.948,2022,[121,562,216,607,764]],["그르륵 갉",54,50,0,0.032,0.4,0.811,0.779,0.969,2023,[675,420,715,128,337]],["엉엉슨",47,40,0,0.031,0.8,0.793,0.763,0.985,2024,[520,171,88,309,793]],["행집욕부",90,64,0,0.049,0.2,0.686,0.636,0.878,2024,[170,286,417,518,216]],["우내할",54,69,0,0.041,0.2,0.766,0.725,0.923,2023,[553,530,519,544,552]],["북부대공",83,32,0,0.033,0.4,0.65,0.617,0.818,2025,[680,687,390,113,473]],["쫌쫌따리",34,36,0,0.017,0.4,0.782,0.765,0.986,2021,[334,737,597,796,240]],["꾸웨액",65,32,0,0.044,0.4,0.8,0.756,0.966,2023,[139,651,66,689,24]],["업토버",72,45,0,0.049,0.0,0.796,0.747,0.953,2021,[355,275,113,145,619]],["디지털 페지 줍기",74,55,0,0.024,0.2,0.285,0.261,0.534,2022,[817,63,188,721,112]],["헉스베리",70,41,0,0.04,0.2,0.767,0.727,0.926,2023,[732,619,284,275,9]],["거지발싸개요일",37,31,0,0.02,0.4,0.793,0.773,0.984,2022,[354,42,597,428,134]],["어서오고",42,57,1,0.023,0.6,0.776,0.753,0.978,2021,[30,31,708,520,341]],["순욱당했네",28,34,0,0.014,0.2,0.776,0.762,0.992,2019,[710,597,334,271,172]],["쉽지 않음",30,69,1,0.031,0.6,0.736,0.705,0.892,2020,[136,743,367,135,412]],["이걸 실시간으로 보다니",42,58,0,0.011,0.6,0.624,0.613,0.788,2018,[589,742,239,3,764]],["라는 내용의 애니 없냐",22,31,1,0.005,0.0,0.74,0.736,0.985,2018,[710,271,172,737,371]],["경찰서 정모",88,61,0,0.016,0.0,0.421,0.404,0.586,2021,[369,604,758,561,383]],["리얼",48,63,1,0.039,0.4,0.754,0.715,0.902,2020,[552,200,507,66,299]],["마렵다",41,43,1,0.026,0.6,0.807,0.781,0.981,2018,[268,624,354,517,783]],["반오십",55,58,1,0.042,0.8,0.806,0.763,0.95,2021,[553,534,519,9,743]],["소식좌",83,53,0,0.047,0.4,0.708,0.661,0.876,2022,[121,241,794,649,724]],["신의 한 수",94,53,1,0.038,0.2,0.533,0.495,0.718,2023,[356,286,203,447,455]],["싱크로율",84,60,1,0.044,0.2,0.5,0.456,0.695,2020,[417,806,390,184,251]],["쿨내",44,49,1,0.029,0.4,0.768,0.739,0.946,2021,[88,110,245,669,606]],["오또케",53,22,1,0.033,0.8,0.777,0.744,0.939,2020,[543,142,654,206,537]],["홈로윈",87,40,1,0.047,0.2,0.614,0.567,0.812,2021,[780,803,473,203,661]],["유앤케이",78,40,0,0.055,0.6,0.778,0.723,0.951,2024,[375,281,329,216,121]],["코리안 아이스드 커피",65,63,0,0.024,0.6,0.529,0.504,0.682,2021,[57,85,260,283,294]],["을지로입구 99번출구",7,76,0,0.014,0.4,0.573,0.559,0.758,2021,[495,575,523,362,50]],["티모시 샬라메 살라메",8,35,0,0.005,0.0,0.72,0.715,0.969,2024,[488,697,363,623,449]],["BORG",83,49,0,0.061,0.2,0.683,0.621,0.898,2023,[234,705,640,719,417]],["헤어지자고? 너 누군데",44,82,0,0.019,0.0,0.632,0.613,0.851,2024,[596,307,418,585,541]],["경관의 피",85,68,0,0.027,0.0,0.462,0.435,0.646,2022,[758,170,342,603,390]],["살구명장",82,64,0,0.044,0.4,0.712,0.668,0.918,2024,[390,150,666,234,417]],["상치",58,75,0,0.051,0.6,0.802,0.751,0.967,2021,[292,530,654,204,211]],["원도우 펀치맨",32,24,0,0.017,0.4,0.77,0.753,0.966,2023,[255,267,737,795,134]],["김땅콩",45,14,0,0.021,0.2,0.574,0.553,0.786,2024,[129,265,305,749,158]],["공범",80,54,0,0.051,0.2,0.681,0.63,0.879,2021,[234,721,417,263,469]],["탕탕 후루후루",63,58,1,0.041,0.0,0.759,0.718,0.92,2024,[118,108,139,725,211]],["저속노화",58,68,1,0.038,0.4,0.804,0.766,0.956,2025,[530,534,519,553,544]],["PPAP",87,48,1,0.03,0.4,0.377,0.347,0.53,2021,[745,416,705,78,342]],["공주의 규칙",93,61,0,0.031,0.0,0.522,0.491,0.749,2025,[170,603,473,605,454]],["에그워드리",53,22,1,0.027,0.2,0.797,0.77,0.98,2024,[280,104,492,706,775]],["뉴런 공유",88,61,0,0.028,0.2,0.302,0.274,0.54,2023,[401,747,308,361,806]],["움파룸파 둠파티두",13,29,0,0.008,0.0,0.748,0.74,0.965,2024,[754,443,787,609,527]],["자라나라 트리트리",83,31,0,0.031,0.4,0.59,0.559,0.773,2023,[680,632,329,661,473]],["로버트는 얼마나 좋았을까?",94,50,0,0.017,0.4,0.195,0.178,0.481,2023,[638,633,779,356,805]],["너와의 모든 지금",30,66,0,0.011,0.4,0.724,0.713,0.928,2024,[549,585,707,231,487]],["안익었는데진짜",20,58,0,0.012,0.0,0.769,0.757,0.985,2023,[115,597,394,130,332]],["내 트리를 꾸며줘!",57,89,0,0.027,0.2,0.726,0.699,0.91,2021,[542,569,35,530,302]],["베리 드뮤어",35,24,0,0.021,0.6,0.773,0.752,0.975,2024,[767,267,796,428,364]],["예민하네 화났네",36,49,1,0.02,0.2,0.754,0.735,0.942,2021,[337,217,606,465,128]],["풍향고",51,39,0,0.036,0.4,0.799,0.763,0.96,2024,[715,309,725,338,20]],["땡큐 카테키",57,25,0,0.027,0.0,0.754,0.727,0.92,2025,[543,389,673,499,689]],["BENJAMIN'S DELI",94,49,0,0.034,0.6,0.364,0.331,0.611,2023,[203,356,633,138,746]],["모스부호",86,38,0,0.052,0.6,0.708,0.656,0.916,2023,[803,661,444,705,473]],["튀르키예즈 온 더 블럭",36,36,0,0.016,0.2,0.775,0.76,0.95,2022,[730,298,354,597,675]],["쩝쩝박사",35,54,1,0.025,0.6,0.789,0.763,0.967,2021,[376,123,4,626,624]],["굳이데이",41,38,0,0.029,0.6,0.804,0.774,0.976,2023,[743,793,626,354,624]],["댄스챌린짐",33,5,1,0.018,0.0,0.684,0.667,0.954,2024,[811,198,395,532,215]],["체리피스",84,42,0,0.051,0.4,0.728,0.677,0.911,2022,[803,375,121,218,138]],["별꾸",56,82,0,0.042,0.4,0.695,0.653,0.897,2024,[36,759,44,387,464]],["젤다 휴가",22,30,0,0.015,0.2,0.778,0.763,0.985,2023,[388,527,597,737,567]],["스웨덴 게이트",87,42,0,0.023,0.2,0.435,0.412,0.588,2022,[416,473,780,390,78]],["솔숲 끝으로 해맑은 햇살이 찾아오고",6,45,0,0.004,0.2,0.694,0.69,0.929,2025,[488,574,754,106,623]],["쇠일러문",72,53,0,0.035,0.6,0.763,0.727,0.926,2024,[390,534,688,113,666]],["머니딛",60,54,0,0.04,0.4,0.79,0.75,0.945,2022,[534,73,530,501,595]],["무도일력",89,68,0,0.043,0.2,0.568,0.525,0.828,2024,[266,170,603,417,286]],["춘식이",45,31,1,0.027,1.0,0.796,0.77,0.99,2021,[282,316,309,624,267]],["텍스트힙",66,41,0,0.045,0.4,0.771,0.727,0.918,2024,[139,587,731,534,294]],["조쉬 허쳐슨 밈",26,26,0,0.014,0.0,0.755,0.74,0.964,2023,[527,760,787,567,737]],["렛미두잇뽈유",36,27,0,0.019,0.2,0.787,0.767,0.985,2023,[428,737,334,730,338]],["후드에서 살아남기",91,72,1,0.03,0.0,0.564,0.534,0.77,2022,[603,170,547,692,792]],["옛메",87,54,0,0.045,0.2,0.624,0.578,0.802,2024,[473,216,234,34,263]],["잘파세대",58,64,0,0.039,0.4,0.805,0.766,0.948,2023,[519,9,534,329,544]],["익속",53,77,0,0.044,0.4,0.726,0.682,0.917,2025,[629,764,724,530,627]],["드라우닝",79,58,1,0.047,0.6,0.786,0.739,0.949,2024,[242,216,688,121,113]],["쉿재용",81,57,0,0.057,0.6,0.713,0.656,0.908,2023,[121,350,234,607,375]],["총켓몬",84,41,0,0.052,0.8,0.77,0.718,0.95,2024,[375,562,121,329,661]],["방방컨",79,52,0,0.046,0.4,0.715,0.669,0.894,2022,[234,562,587,113,121]],["조나단 밀크티",86,43,0,0.037,0.4,0.613,0.577,0.803,2021,[138,637,683,803,473]],["지우학",90,60,0,0.056,0.4,0.65,0.594,0.907,2022,[454,251,417,473,121]],["공주들은 원래 그래",20,35,0,0.006,0.0,0.74,0.734,0.973,2024,[787,567,527,76,394]],["숲튽훈",75,47,1,0.037,0.4,0.673,0.636,0.819,2023,[809,113,329,801,433]],["지글지글",77,41,0,0.052,0.6,0.783,0.731,0.949,2022,[688,375,216,329,562]],["ONION 하세요",56,69,0,0.05,0.6,0.795,0.745,0.954,2023,[653,553,519,544,121]],["돌탁댄스",34,6,0,0.027,0.2,0.716,0.689,0.956,2023,[784,198,532,395,215]],["그대들은 어떻게 살 것인가",17,42,0,0.004,0.0,0.665,0.661,0.851,2023,[125,452,582,807,80]],["시발 카드",79,63,0,0.021,0.2,0.379,0.358,0.552,2021,[112,551,390,712,417]],["나 아는사람 강다니엘 닮은 이모가 다시보게되는게 다시 ",18,54,0,-0.006,0.0,0.597,0.603,0.823,2018,[120,657,71,3,374]],["오스틴입니다",54,30,1,0.03,0.4,0.747,0.717,0.896,2019,[474,519,450,275,268]],["자세히 보기를 누르지 마십시오",20,65,0,0.007,0.6,0.7,0.693,0.902,2019,[252,182,374,295,652]],["세이브 조작단",76,57,0,0.032,0.6,0.662,0.63,0.864,2021,[666,504,113,150,551]],["삐끼삐끼",59,56,1,0.038,0.4,0.776,0.738,0.939,2024,[725,292,654,435,530]]],"c":{"sx":57.6,"sy":46.6,"nx":47.3,"ny":48.7}};
+const MD=RAW.d; // [word,x,y,label,margin,knn,simS,simN,density,year,[neighbors]]
+const MCT=RAW.c; // centroids
+
+function SemanticMap(){
+  const [sel,setSel]=useState(null);
+  const [search,setSearch]=useState("");
+  const [hover,setHover]=useState(null);
+  const [showNeighbors,setShowNeighbors]=useState(true);
+  const [colorMode,setColorMode]=useState("label");
+  const [jsonText,setJsonText]=useState("");
+  const [jsonErr,setJsonErr]=useState("");
+  const [newWord,setNewWord]=useState(null);
+
+  const allData=useMemo(()=>newWord?[...MD,newWord]:MD,[newWord]);
+  const newIndex=newWord?MD.length:null;
+
+  const filtered=useMemo(()=>{
+    if(!search) return [];
+    return allData.filter(d=>d[0].toLowerCase().includes(search.toLowerCase())).slice(0,10);
+  },[search,allData]);
+
+  const selData=sel!==null?allData[sel]:null;
+  const neighbors=selData?selData[10]||[]:[];
+
+  const parseNewWord=()=>{
+    try{
+      const obj=JSON.parse(jsonText.trim());
+      const required=["word","x","y","label","margin","knn","simS","simN","density","neighbors"];
+      const missing=required.filter(k=>obj[k]===undefined);
+      if(missing.length) throw new Error(`필수 값 누락: ${missing.join(", ")}`);
+      const arr=[String(obj.word),Number(obj.x),Number(obj.y),Number(obj.label),Number(obj.margin),Number(obj.knn),Number(obj.simS),Number(obj.simN),Number(obj.density),Number(obj.year||2026),(obj.neighbors||[]).map(Number),true];
+      if(!Number.isFinite(arr[1])||!Number.isFinite(arr[2])) throw new Error("x, y 좌표를 확인하세요");
+      arr[1]=Math.max(0,Math.min(100,arr[1]));
+      arr[2]=Math.max(0,Math.min(100,arr[2]));
+      setNewWord(arr); setSel(MD.length); setSearch(""); setJsonErr("");
+    }catch(e){setJsonErr(e.message||"JSON 형식을 확인하세요");}
+  };
+  const clearNewWord=()=>{setNewWord(null); if(sel===MD.length) setSel(null);};
+
+  const getColor=(d,i)=>{
+    if(sel===i) return C.amber;
+    if(d[11]) return C.blue;
+    if(sel!==null && neighbors.includes(i)) return C.purple;
+    if(colorMode==="label") return d[3]===1?C.green:C.coral;
+    if(colorMode==="margin") return d[4]>0.04?C.green:d[4]>0.02?C.amber:C.coral;
+    if(colorMode==="year"){const y=d[9];return y>=2025?"#2d9a5a":y>=2023?"#d4890a":y>=2021?"#c66a1e":"#7a746a";}
+    return C.textMuted;
+  };
+  const getR=(d,i)=>sel===i?7:(d[11]?6:(sel!==null&&neighbors.includes(i)?5:3));
+  const getOpacity=(d,i)=>{
+    if(sel===null) return d[11]?0.95:0.6;
+    if(sel===i) return 0.95;
+    if(d[11]) return 0.85;
+    if(sel!==null&&neighbors.includes(i)) return 0.8;
+    return 0.12;
+  };
+
+  return <div style={{display:"flex",flexDirection:"column"}}>
+    <div style={{padding:"24px 24px 0",maxWidth:1100,margin:"0 auto",width:"100%",boxSizing:"border-box"}}>
+      <STitle sub="819개 유행어를 의미 기준으로 펼쳐 놓은 지도입니다">의미 지도</STitle>
+      <Insight color={C.blue} style={{marginBottom:14}}>
+        각 점이 유행어 하나입니다. 의미 벡터를 2차원으로 펼쳐 비슷한 표현끼리 가깝게 배치했습니다(<Term k="UMAP" />).
+        <b style={{color:C.green}}> 초록 ★ 생존 중심</b> 근처에 있을수록 이미 오래 살아남은 유행어들과 의미가 비슷하다는 뜻입니다.
+      </Insight>
+      <Card style={{marginBottom:14,padding:16}}>
+        <div style={{fontSize:13,fontWeight:700,color:C.text,marginBottom:8}}>신규 단어 위치 추가</div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr auto auto",gap:8,alignItems:"start"}}>
+          <textarea value={jsonText} onChange={e=>setJsonText(e.target.value)} placeholder={'분석 스크립트에서 출력한 JSON을 붙여넣기\n예: {"word":"엠비스찬","x":46.2,"y":51.7,"label":1,"margin":0.034,"knn":0.6,"simS":0.71,"simN":0.67,"density":0.88,"year":2026,"neighbors":[1,2,3,4,5]}'} style={{minHeight:72,resize:"vertical",padding:"10px 12px",borderRadius:8,border:`1px solid ${C.border}`,background:C.bg,fontFamily:mono,fontSize:11,color:C.text,outline:"none"}} />
+          <button onClick={parseNewWord} style={{padding:"10px 14px",borderRadius:8,border:"none",background:C.blue,color:"#fff",fontFamily:font,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>지도에 표시</button>
+          <button onClick={clearNewWord} style={{padding:"10px 14px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card,color:C.textDim,fontFamily:font,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>삭제</button>
+        </div>
+        {jsonErr&&<div style={{marginTop:8,fontSize:12,color:C.red}}>{jsonErr}</div>}
+        {newWord&&<div style={{marginTop:8,fontSize:12,color:C.blue,fontWeight:700}}>“{newWord[0]}” 위치가 지도에 추가되었습니다.</div>}
+      </Card>
+    </div>
+
+    <div style={{padding:"0 24px 12px",maxWidth:1100,margin:"0 auto",width:"100%",boxSizing:"border-box",display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+      <input value={search} onChange={e=>{setSearch(e.target.value);setSel(null);}} placeholder="유행어 검색..." style={{padding:"8px 14px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card,color:C.text,fontSize:13,outline:"none",width:200,fontFamily:font}}/>
+      <span style={{fontSize:12,color:C.textMuted,marginRight:4}}>색 기준:</span>
+      {[["label","생존/미생존"],["margin","생존 거리"],["year","등장 연도"]].map(([m,l])=><button key={m} onClick={()=>setColorMode(m)} style={{padding:"5px 11px",borderRadius:6,border:`1px solid ${colorMode===m?C.amber+"55":C.border}`,background:colorMode===m?"rgba(212,137,10,0.08)":"transparent",color:colorMode===m?C.amber:C.textDim,fontSize:11,cursor:"pointer",fontFamily:font,fontWeight:600}}>{l}</button>)}
+      <label style={{display:"flex",alignItems:"center",gap:5,fontSize:11,color:C.textDim,cursor:"pointer",marginLeft:4}}>
+        <input type="checkbox" checked={showNeighbors} onChange={e=>setShowNeighbors(e.target.checked)} style={{cursor:"pointer"}}/>이웃 연결선
+      </label>
+    </div>
+
+    {search&&filtered.length>0&&<div style={{padding:"0 24px 8px",maxWidth:1100,margin:"0 auto",width:"100%",boxSizing:"border-box",display:"flex",gap:6,flexWrap:"wrap"}}>
+      {filtered.map((d)=>{const idx=allData.indexOf(d);return<button key={idx} onClick={()=>{setSel(idx);setSearch("");}} style={{padding:"4px 10px",borderRadius:6,border:`1px solid ${d[11]?C.blue:(d[3]===1?C.green:C.coral)}44`,background:d[11]?"rgba(53,114,176,0.06)":d[3]===1?"rgba(45,154,90,0.06)":"rgba(201,60,60,0.06)",color:d[11]?C.blue:(d[3]===1?C.green:C.coral),fontSize:12,cursor:"pointer",fontFamily:font}}>{d[0].slice(0,15)}</button>;})}
+    </div>}
+
+    <div style={{maxWidth:1100,margin:"0 auto",width:"100%",boxSizing:"border-box",padding:"0 24px 40px"}}>
+      <div className="mapRow" style={{display:"flex",gap:14,alignItems:"stretch"}}>
+        <div style={{flex:1,position:"relative",overflow:"hidden",borderRadius:14,border:`1px solid ${C.border}`,background:C.card,boxShadow:shadow,minHeight:420}}>
+          <svg viewBox="0 0 100 100" style={{width:"100%",height:"100%",minHeight:420,display:"block"}}>
+            {[20,40,60,80].map(v=><line key={"h"+v} x1={0} y1={v} x2={100} y2={v} stroke={C.border} strokeWidth={0.15} strokeDasharray="0.5,0.5"/>)}
+            {[20,40,60,80].map(v=><line key={"v"+v} x1={v} y1={0} x2={v} y2={100} stroke={C.border} strokeWidth={0.15} strokeDasharray="0.5,0.5"/>)}
+            {sel!==null&&showNeighbors&&neighbors.map(n=>allData[n]&&<line key={n} x1={allData[sel][1]} y1={allData[sel][2]} x2={allData[n][1]} y2={allData[n][2]} stroke={sel===newIndex?C.blue:C.purple} strokeWidth={0.25} strokeOpacity={0.55} strokeDasharray="0.5,0.5"/>)}
+            {allData.map((d,i)=><circle key={i} cx={d[1]} cy={d[2]} r={getR(d,i)/8} fill={getColor(d,i)} fillOpacity={getOpacity(d,i)} stroke={sel===i?"#fff":d[11]?C.blue:neighbors.includes(i)?C.purple:"none"} strokeWidth={sel===i?0.35:0.18} style={{cursor:"pointer",transition:"all 0.15s"}} onClick={()=>setSel(i)} onMouseEnter={()=>setHover(i)} onMouseLeave={()=>setHover(null)}/>)}
+            <g transform={`translate(${MCT.sx},${MCT.sy})`}><polygon points="0,-1.2 1,-0.3 0.6,1 -0.6,1 -1,-0.3" fill={C.green} stroke="#fff" strokeWidth={0.2}/><text y={-2} textAnchor="middle" fontSize={1.8} fill={C.green} fontWeight={700}>생존 중심</text></g>
+            <g transform={`translate(${MCT.nx},${MCT.ny})`}><rect x={-0.8} y={-0.8} width={1.6} height={1.6} fill={C.coral} stroke="#fff" strokeWidth={0.2} transform="rotate(45)"/><text y={-2} textAnchor="middle" fontSize={1.8} fill={C.coral} fontWeight={700}>미생존 중심</text></g>
+            {hover!==null&&<g transform={`translate(${allData[hover][1]},${allData[hover][2]-3})`}>
+              <rect x={-12} y={-2.5} width={24} height={5} rx={0.5} fill="rgba(255,255,255,0.95)" stroke={C.border} strokeWidth={0.1}/>
+              <text textAnchor="middle" y={-0.5} fontSize={1.5} fontWeight={700} fill={C.text}>{allData[hover][0].slice(0,15)}</text>
+              <text textAnchor="middle" y={1.5} fontSize={1.2} fill={allData[hover][11]?C.blue:(allData[hover][3]===1?C.green:C.coral)}>{allData[hover][11]?"신규 단어":(allData[hover][3]===1?"장기생존":"단기유행")} · 거리 {allData[hover][4]>0?"+":""}{allData[hover][4]}</text>
+            </g>}
+            {sel!==null&&<g transform={`translate(${allData[sel][1]},${allData[sel][2]-2})`}><text textAnchor="middle" fontSize={2} fontWeight={800} fill={C.amber} stroke="#fff" strokeWidth={0.3} paintOrder="stroke">{allData[sel][0].slice(0,12)}</text></g>}
+          </svg>
+          <div style={{position:"absolute",bottom:12,left:12,background:"rgba(255,255,255,0.92)",borderRadius:8,padding:"8px 12px",border:`1px solid ${C.border}`,fontSize:11}}>
+            {colorMode==="label"&&<><div style={{display:"flex",alignItems:"center",gap:5,marginBottom:3}}><span style={{width:8,height:8,borderRadius:"50%",background:C.green}}/>장기 생존 (246)</div><div style={{display:"flex",alignItems:"center",gap:5,marginBottom:newWord?3:0}}><span style={{width:8,height:8,borderRadius:"50%",background:C.coral}}/>단기 유행 (573)</div>{newWord&&<div style={{display:"flex",alignItems:"center",gap:5}}><span style={{width:8,height:8,borderRadius:"50%",background:C.blue}}/>신규 단어</div>}</>}
+            {colorMode==="margin"&&<><div style={{display:"flex",alignItems:"center",gap:5,marginBottom:3}}><span style={{width:8,height:8,borderRadius:"50%",background:C.green}}/>생존 쪽에 가까움</div><div style={{display:"flex",alignItems:"center",gap:5,marginBottom:3}}><span style={{width:8,height:8,borderRadius:"50%",background:C.amber}}/>중간</div><div style={{display:"flex",alignItems:"center",gap:5}}><span style={{width:8,height:8,borderRadius:"50%",background:C.coral}}/>미생존 쪽에 가까움</div></>}
+            {colorMode==="year"&&<><div style={{display:"flex",alignItems:"center",gap:5,marginBottom:3}}><span style={{width:8,height:8,borderRadius:"50%",background:"#2d9a5a"}}/>2025-2026</div><div style={{display:"flex",alignItems:"center",gap:5,marginBottom:3}}><span style={{width:8,height:8,borderRadius:"50%",background:"#d4890a"}}/>2023-2024</div><div style={{display:"flex",alignItems:"center",gap:5,marginBottom:3}}><span style={{width:8,height:8,borderRadius:"50%",background:"#c66a1e"}}/>2021-2022</div><div style={{display:"flex",alignItems:"center",gap:5}}><span style={{width:8,height:8,borderRadius:"50%",background:"#7a746a"}}/>~2020</div></>}
+          </div>
+        </div>
+
+        <div className="mapPanel" style={{width:320,flexShrink:0,borderRadius:14,border:`1px solid ${C.border}`,background:C.card,boxShadow:shadow,overflowY:"auto",padding:20,maxHeight:600}}>
+          {selData? <>
+            <div style={{marginBottom:20}}>
+              <div style={{fontSize:22,fontWeight:800,color:C.text,marginBottom:4,wordBreak:"break-all"}}>{selData[0]}</div>
+              <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                <span style={{padding:"3px 10px",borderRadius:12,background:selData[11]?"rgba(53,114,176,0.1)":selData[3]===1?"rgba(45,154,90,0.1)":"rgba(201,60,60,0.1)",color:selData[11]?C.blue:(selData[3]===1?C.green:C.coral),fontSize:11,fontWeight:600}}>{selData[11]?"신규 단어":selData[3]===1?"장기 생존":"단기유행 / 사라짐"}</span>
+                <span style={{padding:"3px 10px",borderRadius:12,background:"rgba(124,92,191,0.08)",color:C.purple,fontSize:11,fontWeight:600}}>{selData[9]}년</span>
+              </div>
+            </div>
+            <div style={{fontSize:13,fontWeight:700,color:C.text,marginBottom:10}}>의미 위치 점수</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:16}}>
+              {[["생존 거리 점수",selData[4]>0?"+"+selData[4]:selData[4],selData[4]>0.03?C.green:C.coral],["주변 생존 비율",Math.round(selData[5]*100)+"%",selData[5]>=0.6?C.green:selData[5]>=0.4?C.amber:C.coral],["생존 중심 유사도",selData[6],C.green],["미생존 중심 유사도",selData[7],C.coral],["주변 밀집도",selData[8],C.blue]].map(([k,v,c])=><div key={k} style={{padding:"10px",borderRadius:8,background:C.bg,border:`1px solid ${C.border}`}}><div style={{fontSize:10,color:C.textMuted}}>{k}</div><div style={{fontSize:16,fontWeight:700,color:c,fontFamily:mono}}>{v}</div></div>)}
+            </div>
+            <div style={{fontSize:13,fontWeight:700,color:C.text,marginBottom:10}}>의미가 가장 비슷한 유행어 5개</div>
+            {neighbors.map((n)=>{const nd=MD[n]; if(!nd) return null; return <div key={n} onClick={()=>setSel(n)} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",borderRadius:8,marginBottom:4,background:C.bg,cursor:"pointer",border:`1px solid ${C.border}`}}><span style={{width:8,height:8,borderRadius:"50%",background:nd[3]===1?C.green:C.coral,flexShrink:0}}/><span style={{flex:1,fontSize:13,color:C.text,fontWeight:500}}>{nd[0].slice(0,20)}</span><span style={{fontSize:10,color:C.textMuted}}>{nd[9]}년</span><span style={{fontSize:11,color:nd[3]===1?C.green:C.coral,fontWeight:600}}>{nd[3]===1?"생존":"미생존"}</span></div>;})}
+          </> : <div style={{textAlign:"center",paddingTop:40}}><div style={{fontSize:32,marginBottom:12}}>🔍</div><div style={{fontSize:15,fontWeight:600,color:C.text,marginBottom:8}}>유행어를 선택해 보세요</div><div style={{fontSize:13,color:C.textDim,lineHeight:1.6}}>지도에서 점을 클릭하거나<br/>검색창에 유행어를 입력하세요</div></div>}
+        </div>
+      </div>
+    </div>
+  </div>;
+}
+
+/* ═══ APP ═══ */
+function App(){
+  const [page,setPage]=useState("home");
+  useEffect(()=>{const l=document.createElement("link");l.href="https://cdnjs.cloudflare.com/ajax/libs/pretendard/1.3.9/variable/pretendardvariable.min.css";l.rel="stylesheet";document.head.appendChild(l);},[]);
+  const go=p=>{setPage(p);window.scrollTo({top:0,behavior:"smooth"});};
+  const NAV=[{id:"home",l:"홈",i:"🏠"},{id:"predict",l:"생존 예측",i:"🔮"},{id:"map",l:"의미 지도",i:"🗺️"},{id:"analysis",l:"실험 결과",i:"📊"},{id:"sn",l:"특징 조합",i:"🧭"},{id:"data",l:"데이터",i:"📈"}];
+  return<div style={{fontFamily:font,background:C.bg,color:C.text,minHeight:"100vh"}}>
+    <nav style={{position:"fixed",top:0,left:0,right:0,zIndex:100,padding:"0 20px",height:50,background:`${C.bg}ee`,backdropFilter:"blur(12px)",borderBottom:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+      <div style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer"}} onClick={()=>go("home")}>
+        <span style={{fontSize:17,fontWeight:800,background:`linear-gradient(135deg,${C.amber},${C.coral})`,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>FL</span>
+        <span style={{color:C.textDim,fontSize:12}}>유행어 생존 예측</span>
+      </div>
+      <div style={{display:"flex",gap:2}}>{NAV.map(n=><button key={n.id} onClick={()=>go(n.id)} style={{padding:"5px 10px",borderRadius:7,cursor:"pointer",border:"none",fontFamily:font,fontSize:12,fontWeight:page===n.id?700:500,background:page===n.id?C.amberBg:"transparent",color:page===n.id?C.amber:C.textDim,display:"flex",alignItems:"center",gap:4}}><span style={{fontSize:12}}>{n.i}</span><span className="nl">{n.l}</span></button>)}</div>
+    </nav>
+    <div style={{paddingTop:50}}>
+      {page==="home"&&<Home go={go}/>}
+      {page==="predict"&&<Predict/>}
+      {page==="map"&&<SemanticMap/>}
+      {page==="analysis"&&<Analysis/>}
+      {page==="sn"&&<SNExperiment/>}
+      {page==="data"&&<Data/>}
+    </div>
+    <footer style={{textAlign:"center",padding:"24px 20px",borderTop:`1px solid ${C.border}`,color:C.textMuted,fontSize:11}}>© 2025 FL Team — 유행어 생존 예측 프로젝트 · 손정훈 · 이상아 · 이재준</footer>
+    <style>{`@media(max-width:600px){.nl{display:none;}}@media(max-width:760px){.mapRow{flex-direction:column!important;}.mapPanel{width:auto!important;max-height:none!important;}}`}</style>
+  </div>;
+}
+
+
+createRoot(document.getElementById('root')).render(<App />);
+
+    </script>
+  </body>
+</html>
